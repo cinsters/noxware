@@ -1,0 +1,8 @@
+name = "noxware-mail-inbound"
+main = "index.js"
+compatibility_date = "2026-01-15"
+
+[vars]
+API_URL = "https://api.noxware.cc/api/mail/inbound"
+
+# Secret (do NOT put it in vars):  npx wrangler secret put INBOUND_SECRET

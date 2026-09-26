@@ -1,0 +1,52 @@
+# Noxware edge — automatic HTTPS via Let's Encrypt (no certbot needed).
+#
+# DNS prerequisites (Cloudflare, grey-cloud first for the initial cert):
+#   noxware.cc            A/AAAA → VM
+#   www.noxware.cc        A/AAAA → VM   (proxied OK after first issuance)
+#   api.noxware.cc        A/AAAA → VM
+
+# Storefront + dashboard (SPA + same-origin API)
+noxware.cc {
+	# ---------- security headers ----------
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "DENY"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		Permissions-Policy        "geolocation=(), microphone=(), camera=()"
+		-Server
+	}
+
+	# Vite emits content-hashed filenames under /assets — cache forever.
+	@static path /assets/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	# API goes to the node service inside the compose network.
+	handle /api/* {
+		reverse_proxy api:3001
+	}
+
+	# Everything else: SPA with history-API fallback for react-router.
+	handle {
+		root * /srv/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	encode zstd gzip
+}
+
+# Canonicalize www → apex
+www.noxware.cc {
+	redir https://noxware.cc{uri} permanent
+}
+
+# Public API host (OpenAPI docs, webhooks, external consumers)
+api.noxware.cc {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		-Server
+	}
+	reverse_proxy api:3001
+}

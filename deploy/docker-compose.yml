@@ -1,0 +1,58 @@
+# Noxware production stack — noxware.cc
+#
+#   caddy  : 80/443 — auto-HTTPS, serves the built SPA, proxies /api → api:3001
+#   api    : node server (SQLite on a named volume), NOT exposed publicly
+#
+# Run from the deploy/ directory:
+#   cp api.env.example api.env   # fill in secrets
+#   docker compose up -d --build
+name: noxware
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    image: noxware-api:latest
+    env_file: api.env
+    environment:
+      # Inside the compose network the API is reachable as http://api:3001
+      PORT: 3001
+      DATABASE_PATH: /app/server/data/noxware.sqlite
+      CLIENT_ORIGIN: https://noxware.cc
+      PUBLIC_API_URL: https://api.noxware.cc
+    volumes:
+      - api-data:/app/server/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3001/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    image: noxware-web:latest
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp' # HTTP/3
+    volumes:
+      - caddy-data:/data # TLS certificates
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  api-data:
+  caddy-data:
+  caddy-config:

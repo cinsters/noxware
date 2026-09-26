@@ -1,0 +1,37 @@
+# Termux-local edge: cloudflared terminates TLS at Cloudflare's edge and
+# forwards plain HTTP to this listener. No certificates on the phone needed.
+#
+# Run: caddy run --config ~/noxware/deploy/termux/Caddyfile
+# Assumes the repo is cloned to ~/noxware.
+
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	# Vite emits content-hashed filenames under /assets — cache forever.
+	@static path /assets/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options        "DENY"
+		Referrer-Policy        "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# API → node process
+	handle /api/* {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	# SPA with history-API fallback for react-router
+	handle {
+		root * /data/data/com.termux/files/home/noxware/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	encode zstd gzip
+}

@@ -1,0 +1,142 @@
+import Database from 'better-sqlite3'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const dataDir = path.join(__dirname, 'data')
+const dbPath = process.env.DATABASE_PATH || path.join(dataDir, 'noxware.sqlite')
+
+/** @type {import('better-sqlite3').Database | null} */
+let db = null
+
+export function getDb() {
+  if (!db) throw new Error('Database not initialized')
+  return db
+}
+
+export function initDb() {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true })
+  db = new Database(dbPath)
+  db.pragma('journal_mode = WAL')
+  db.pragma('foreign_keys = ON')
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'customer',
+      invite_code_id INTEGER,
+      accepted_terms_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      plan_id TEXT,
+      expires_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      payment_id TEXT UNIQUE,
+      plan_id TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS license_keys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      plan_id TEXT NOT NULL,
+      days INTEGER NOT NULL,
+      order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+      redeemed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      redeemed_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS invite_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      max_uses INTEGER NOT NULL DEFAULT 1,
+      uses INTEGER NOT NULL DEFAULT 0,
+      note TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS captcha_challenges (
+      id TEXT PRIMARY KEY,
+      answer_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      created_via TEXT NOT NULL DEFAULT 'web',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS support_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+      author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      author_role TEXT NOT NULL DEFAULT 'customer',
+      body TEXT NOT NULL,
+      internal INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);
+    CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);
+    CREATE INDEX IF NOT EXISTS idx_support_messages_ticket ON support_messages(ticket_id);
+  `)
+
+  migrateOrdersPaymentId(db)
+  migrateUsersRegistrationColumns(db)
+  migrateUsersRoleColumn(db)
+
+  return db
+}
+
+function migrateOrdersPaymentId(database) {
+  const columns = database.prepare('PRAGMA table_info(orders)').all()
+  const names = new Set(columns.map((column) => column.name))
+
+  if (names.has('stripe_session_id') && !names.has('payment_id')) {
+    database.exec('ALTER TABLE orders RENAME COLUMN stripe_session_id TO payment_id')
+  }
+}
+
+function migrateUsersRegistrationColumns(database) {
+  const columns = database.prepare('PRAGMA table_info(users)').all()
+  const names = new Set(columns.map((column) => column.name))
+
+  if (!names.has('invite_code_id')) {
+    database.exec('ALTER TABLE users ADD COLUMN invite_code_id INTEGER')
+  }
+  if (!names.has('accepted_terms_at')) {
+    database.exec('ALTER TABLE users ADD COLUMN accepted_terms_at TEXT')
+  }
+}
+
+function migrateUsersRoleColumn(database) {
+  const columns = database.prepare('PRAGMA table_info(users)').all()
+  const names = new Set(columns.map((column) => column.name))
+
+  if (!names.has('role')) {
+    database.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'customer'")
+  }
+}

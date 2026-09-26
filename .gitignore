@@ -1,0 +1,14 @@
+# Dependencies
+node_modules
+
+# Build
+dist
+
+# Env & local data
+.env
+deploy/api.env
+server/data
+
+# OS / editor
+.DS_Store
+*.local

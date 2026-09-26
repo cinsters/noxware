@@ -1,0 +1,748 @@
+openapi: 3.1.0
+info:
+  title: Noxware API
+  version: 1.0.0
+  description: |
+    Accounts, subscriptions (NOWPayments crypto checkout), license keys, and the
+    customer-support ticketing API (REST + inbound-email ingestion).
+
+    ### Support intake over email
+    MX/Email-Routing providers POST to `POST /api/mail/inbound` with header
+    `X-Inbound-Secret: $MAIL_INBOUND_SECRET`. New mail opens a ticket; replies
+    (Re:/Fwd:) append to the customer's most recent non-closed ticket.
+servers:
+  - url: https://api.noxware.cc
+    description: Production
+  - url: https://api-staging.noxware.cc
+    description: Staging
+  - url: http://127.0.0.1:3001
+    description: Local development
+tags:
+  - name: Health
+  - name: Auth
+  - name: Account
+  - name: Checkout
+  - name: Support
+  - name: Staff
+  - name: Webhooks
+security:
+  - bearerAuth: []
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Service health check
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service]
+                properties:
+                  ok: { type: boolean, example: true }
+                  service: { type: string, example: noxware-api }
+
+  /api/auth/config:
+    get:
+      tags: [Auth]
+      summary: Captcha configuration for the auth UI
+      security: []
+      responses:
+        '200':
+          description: Captcha mode and optional Turnstile site key
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthConfig' }
+
+  /api/auth/captcha:
+    get:
+      tags: [Auth]
+      summary: Issue a local math captcha challenge
+      description: Only available when Turnstile is not configured (captchaMode `local`).
+      security: []
+      responses:
+        '200':
+          description: Captcha challenge
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptchaChallenge' }
+        '400':
+          description: Local captcha disabled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new account (invite code + captcha + terms required)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterInput' }
+      responses:
+        '201':
+          description: Account created; session returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '400':
+          description: Validation error (credentials, terms, invite, captcha)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Email or username already in use
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in with email + password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginInput' }
+      responses:
+        '200':
+          description: Session returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/me:
+    get:
+      tags: [Account]
+      summary: Current user, subscription, and latest license key
+      responses:
+        '200':
+          description: Account overview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+        '401':
+          description: Missing/invalid token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/checkout/session:
+    post:
+      tags: [Checkout]
+      summary: Create a NOWPayments crypto invoice for a plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [planId]
+              properties:
+                planId:
+                  type: string
+                  enum: ['1m', '3m', '6m']
+      responses:
+        '200':
+          description: Hosted invoice URL and order reference
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, orderId, invoiceId]
+                properties:
+                  url: { type: string, format: uri }
+                  orderId: { type: integer, example: 42 }
+                  invoiceId: { type: string, example: '5823917' }
+        '400':
+          description: Unknown plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Missing/invalid token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: NOWPayments not configured
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/checkout/confirm:
+    post:
+      tags: [Checkout]
+      summary: Poll NOWPayments and fulfill an order if the payment is confirmed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId]
+              properties:
+                orderId: { type: integer }
+      responses:
+        '200':
+          description: Order processed (possibly earlier via IPN)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfirmResult' }
+        '402':
+          description: Payment not confirmed yet
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+                  - type: object
+                    properties:
+                      paymentStatus: { type: string, example: waiting }
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/redeem:
+    post:
+      tags: [Checkout]
+      summary: Redeem a license key to extend the subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, example: 'NOX-A1B2-C3D4-E5F6' }
+      responses:
+        '200':
+          description: Redeemed (or already on this account)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message, subscription]
+                properties:
+                  message: { type: string }
+                  planId: { type: string, nullable: true }
+                  subscription: { $ref: '#/components/schemas/Subscription' }
+        '404':
+          description: Invalid license key
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Key already redeemed by another account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/support/tickets:
+    get:
+      tags: [Support]
+      summary: List the current customer's tickets
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 100 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        '200':
+          description: Ticket list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tickets, total]
+                properties:
+                  tickets:
+                    type: array
+                    items: { $ref: '#/components/schemas/TicketSummary' }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '401':
+          description: Missing/invalid token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    post:
+      tags: [Support]
+      summary: Open a support ticket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewTicketInput' }
+      responses:
+        '201':
+          description: Ticket created (Location header set)
+          headers:
+            Location:
+              schema: { type: string }
+              example: /api/support/tickets/12
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketWithMessages' }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Missing/invalid token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/support/tickets/{id}:
+    get:
+      tags: [Support]
+      summary: Get one of the customer's tickets with its conversation
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Ticket with messages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketWithMessages' }
+        '403':
+          description: Ticket belongs to another user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/support/tickets/{id}/replies:
+    post:
+      tags: [Support]
+      summary: Reply to a ticket as the customer
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewReplyInput' }
+      responses:
+        '201':
+          description: Reply stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: { $ref: '#/components/schemas/TicketMessage' }
+        '409':
+          description: Ticket is closed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/support/staff/tickets:
+    get:
+      tags: [Staff]
+      summary: List all tickets (staff only)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, pending, closed] } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 100 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        '200':
+          description: Ticket list with requester identity
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tickets, total]
+                properties:
+                  tickets:
+                    type: array
+                    items: { $ref: '#/components/schemas/TicketSummary' }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        '403':
+          description: Not staff
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/support/staff/tickets/{id}:
+    get:
+      tags: [Staff]
+      summary: View any ticket including internal notes (staff only)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Ticket with conversation and internal notes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketWithMessages' }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    patch:
+      tags: [Staff]
+      summary: Update status and/or priority (staff only)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [open, pending, closed] }
+                priority: { type: string, enum: [low, normal, high] }
+      responses:
+        '200':
+          description: Updated ticket
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketWithMessages' }
+        '400':
+          description: Invalid status/priority
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/support/staff/tickets/{id}/replies:
+    post:
+      tags: [Staff]
+      summary: Reply as staff, optionally as an internal note (staff only)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/NewReplyInput'
+                - type: object
+                  properties:
+                    internal:
+                      type: boolean
+                      default: false
+                      description: Store as an internal note hidden from the customer.
+                    reopen:
+                      type: boolean
+                      default: false
+                      description: Allow replying to a closed ticket (reopens it).
+      responses:
+        '201':
+          description: Reply stored; ticket moved to pending
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: { $ref: '#/components/schemas/TicketMessage' }
+        '409':
+          description: Ticket is closed (pass reopen:true)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/mail/inbound:
+    post:
+      tags: [Webhooks]
+      summary: Inbound email webhook for the support inbox (MX → ticket)
+      description: |
+        Called by the mail provider when email arrives at the support address.
+        Accepts the payload shapes of Cloudflare Email Workers, Mailgun routes,
+        SendGrid Inbound Parse, and Postmark. Returns 201 when a ticket was
+        created/updated; 4xx responses ask the provider to bounce the message.
+      security:
+        - inboundSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                  example: 'Jane Doe <jane@example.com>'
+                  description: Sender (also accepts Mailgun `sender`, Postmark `From`).
+                to:
+                  type: string
+                  example: support@noxware.app
+                subject: { type: string, example: 'Re: License key not working' }
+                text: { type: string, example: 'Still getting error 403 after redeeming...' }
+      responses:
+        '201':
+          description: Ticket created or reply matched
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InboundResult' }
+        '401':
+          description: Invalid or missing X-Inbound-Secret
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Unprocessable mail (unknown sender, empty body, wrong recipient)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: MAIL_INBOUND_SECRET not configured
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/webhooks/nowpayments:
+    post:
+      tags: [Webhooks]
+      summary: NOWPayments IPN callback
+      description: Fulfills paid orders, extends subscriptions, and issues license keys. Signature-verified via `X-Nowpayments-Sig`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payment_status: { type: string, example: finished }
+                order_id: { type: string, example: 'nox-42' }
+                invoice_id: { type: string, example: '5823917' }
+      responses:
+        '200':
+          description: Received (or intentionally ignored)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: boolean }
+                  ignored: { type: boolean }
+                  alreadyProcessed: { type: boolean }
+        '401':
+          description: Invalid IPN signature
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Unknown order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT from /api/auth/login or /api/auth/register (`Authorization: Bearer <token>`), valid 14 days.
+    inboundSecret:
+      type: apiKey
+      in: header
+      name: X-Inbound-Secret
+      description: Shared secret equal to the server's MAIL_INBOUND_SECRET.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, example: 'Ticket is closed — open a new ticket' }
+
+    User:
+      type: object
+      required: [id, email, username, role]
+      properties:
+        id: { type: integer, example: 7 }
+        email: { type: string, format: email, example: jane@example.com }
+        username: { type: string, example: jane }
+        role:
+          type: string
+          enum: [customer, support, admin]
+          description: Staff roles (support/admin) unlock the Staff endpoints.
+        createdAt: { type: string, format: date-time }
+
+    Subscription:
+      type: object
+      required: [active]
+      properties:
+        active: { type: boolean }
+        planId:
+          type: string
+          nullable: true
+          enum: [null, '1m', '3m', '6m']
+        expiresAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+
+    AuthConfig:
+      type: object
+      required: [captchaMode]
+      properties:
+        captchaMode: { type: string, enum: [local, turnstile] }
+        turnstileSiteKey: { type: string, nullable: true }
+
+    CaptchaChallenge:
+      type: object
+      required: [id, question, mode]
+      properties:
+        id: { type: string, example: 9f2c8e6a1b3d4f5a6b7c8d9e0f1a2b3c }
+        question: { type: string, example: 'What is 7 + 4?' }
+        mode: { type: string, enum: [local] }
+
+    AuthSession:
+      type: object
+      required: [token, user, subscription]
+      properties:
+        token: { type: string, description: JWT, valid 14 days }
+        user: { $ref: '#/components/schemas/User' }
+        subscription: { $ref: '#/components/schemas/Subscription' }
+
+    RegisterInput:
+      type: object
+      required: [email, username, password, inviteCode, acceptedTerms]
+      properties:
+        email: { type: string, format: email }
+        username: { type: string, minLength: 3, maxLength: 24, pattern: '^[a-zA-Z0-9_]+$' }
+        password: { type: string, minLength: 6 }
+        inviteCode: { type: string, example: NOX-INVITE-2026 }
+        acceptedTerms: { type: boolean, const: true }
+        captchaToken: { type: string, description: Turnstile token (turnstile mode) }
+        captchaId: { type: string, description: Local captcha id (local mode) }
+        captchaAnswer: { type: string, description: Local captcha answer (local mode) }
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    MeResponse:
+      type: object
+      required: [user, subscription]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        subscription: { $ref: '#/components/schemas/Subscription' }
+        latestLicenseKey:
+          nullable: true
+          type: object
+          required: [code, planId, createdAt]
+          properties:
+            code: { type: string, example: 'NOX-A1B2-C3D4-E5F6' }
+            planId: { type: string, example: '1m' }
+            createdAt: { type: string, format: date-time }
+
+    ConfirmResult:
+      type: object
+      required: [ok, licenseKey, subscription]
+      properties:
+        ok: { type: boolean, const: true }
+        alreadyProcessed: { type: boolean }
+        licenseKey: { type: string, nullable: true, example: 'NOX-A1B2-C3D4-E5F6' }
+        subscription: { $ref: '#/components/schemas/Subscription' }
+
+    TicketSummary:
+      type: object
+      required: [id, userId, subject, status, priority, createdAt, updatedAt]
+      properties:
+        id: { type: integer, example: 12 }
+        userId: { type: integer }
+        username: { type: string, nullable: true, description: Included on staff views only }
+        email: { type: string, nullable: true, description: Included on staff views only }
+        subject: { type: string, example: 'License key not working' }
+        status: { type: string, enum: [open, pending, closed] }
+        priority: { type: string, enum: [low, normal, high] }
+        createdVia: { type: string, enum: [web, email], description: Intake channel }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    TicketMessage:
+      type: object
+      required: [id, ticketId, authorRole, body, internal, createdAt]
+      properties:
+        id: { type: integer }
+        ticketId: { type: integer }
+        authorId: { type: integer, nullable: true }
+        authorRole: { type: string, enum: [customer, staff] }
+        body: { type: string }
+        internal:
+          type: boolean
+          description: Internal notes are only returned on staff views.
+        createdAt: { type: string, format: date-time }
+
+    TicketWithMessages:
+      type: object
+      required: [ticket]
+      properties:
+        ticket:
+          allOf:
+            - $ref: '#/components/schemas/TicketSummary'
+            - type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  items: { $ref: '#/components/schemas/TicketMessage' }
+
+    NewTicketInput:
+      type: object
+      required: [subject, body]
+      properties:
+        subject: { type: string, maxLength: 200, example: 'License key not working' }
+        body: { type: string, maxLength: 10000 }
+
+    NewReplyInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, maxLength: 10000 }
+
+    InboundResult:
+      type: object
+      required: [received, matched, ticketId]
+      properties:
+        received: { type: boolean, const: true }
+        matched: { type: string, enum: [new, reply] }
+        ticketId: { type: integer }
+        messageId: { type: integer }
+        ticket: { $ref: '#/components/schemas/TicketSummary' }
