@@ -472,6 +472,41 @@ adminRouter.delete('/invites/:id', requireAdmin, (req, res) => {
   res.json({ ok: true, revokedAt })
 })
 
+/* ---------------- Mail log ---------------- */
+
+adminRouter.get('/mail-events', requireAdmin, (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 50, 200)
+  const offset = Math.max(Number(req.query.offset) || 0, 0)
+  const db = getDb()
+
+  const total = db.prepare('SELECT COUNT(*) AS c FROM mail_events').get().c
+  const rows = db
+    .prepare(
+      `
+      SELECT id, from_addr, to_addr, subject, outcome, reason, created_at
+      FROM mail_events
+      ORDER BY id DESC
+      LIMIT ? OFFSET ?
+    `,
+    )
+    .all(limit, offset)
+
+  res.json({
+    events: rows.map((row) => ({
+      id: row.id,
+      from: row.from_addr,
+      to: row.to_addr,
+      subject: row.subject,
+      outcome: row.outcome,
+      reason: row.reason,
+      createdAt: row.created_at,
+    })),
+    total,
+    limit,
+    offset,
+  })
+})
+
 /* ---------------- Audit log ---------------- */
 
 adminRouter.get('/audit-log', requireAdmin, (req, res) => {

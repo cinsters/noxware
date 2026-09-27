@@ -6,6 +6,7 @@ import {
   createInvite,
   deleteBuild,
   fetchAuditLog,
+  fetchMailEvents,
   generateKeys,
   grantUser,
   isAdmin,
@@ -20,10 +21,11 @@ import {
   type AuditEntry,
   type Build,
   type Invite,
+  type MailEvent,
 } from '../api'
 import { useAuth } from '../auth'
 
-type Tab = 'users' | 'keys' | 'invites' | 'builds' | 'audit'
+type Tab = 'users' | 'keys' | 'invites' | 'builds' | 'mail' | 'audit'
 
 export function AdminPage() {
   const { user, loading } = useAuth()
@@ -48,7 +50,7 @@ export function AdminPage() {
           <p>Users, keys, and the audit trail.</p>
         </div>
         <div className="staff-filters">
-          {(['users', 'keys', 'invites', 'builds', 'audit'] as Tab[]).map((t) => (
+          {(['users', 'keys', 'invites', 'builds', 'mail', 'audit'] as Tab[]).map((t) => (
             <button key={t} type="button" className={`btn btn-ghost ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -67,6 +69,7 @@ export function AdminPage() {
       {tab === 'keys' && <KeysTab setNotice={setNotice} setError={setError} />}
       {tab === 'invites' && <InvitesTab setNotice={setNotice} setError={setError} />}
       {tab === 'builds' && <BuildsTab setNotice={setNotice} setError={setError} />}
+      {tab === 'mail' && <MailTab setError={setError} />}
       {tab === 'audit' && <AuditTab setError={setError} />}
     </div>
   )
@@ -670,6 +673,60 @@ function BuildsTab({
               <tr>
                 <td colSpan={7} className="sub">
                   No builds uploaded yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function MailTab({ setError }: { setError: (v: string) => void }) {
+  const [events, setEvents] = useState<MailEvent[]>([])
+
+  useEffect(() => {
+    fetchMailEvents()
+      .then((data) => setEvents(data.events))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load mail log'))
+  }, [setError])
+
+  return (
+    <div className="dash-panel wide">
+      <h2>Mail log ({events.length})</h2>
+      <p style={{ marginTop: 0, color: 'var(--muted)' }}>
+        Every inbound support email — accepted into a ticket, or rejected with the reason.
+      </p>
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>From</th>
+              <th>Subject</th>
+              <th>Outcome</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {events.map((e) => (
+              <tr key={e.id} className={e.outcome === 'rejected' ? 'banned-row' : ''}>
+                <td className="sub">{new Date(e.createdAt).toLocaleString()}</td>
+                <td className="sub">{e.from ?? '—'}</td>
+                <td className="sub" style={{ maxWidth: 260, wordBreak: 'break-word' }}>
+                  {e.subject ?? '—'}
+                </td>
+                <td>
+                  <span className={`pill ${e.outcome === 'accepted' ? '' : 'danger'}`}>{e.outcome}</span>
+                </td>
+                <td className="sub">{e.reason ?? '—'}</td>
+              </tr>
+            ))}
+            {events.length === 0 && (
+              <tr>
+                <td colSpan={5} className="sub">
+                  No inbound mail attempts recorded yet.
                 </td>
               </tr>
             )}

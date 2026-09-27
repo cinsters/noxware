@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import crypto from 'node:crypto'
-import { getInboundSecret, handleInboundEmail } from '../services/mail.js'
+import { getInboundSecret, handleInboundEmail, readInboundEmail, recordMailEvent } from '../services/mail.js'
 
 export const mailRouter = Router()
 
@@ -20,6 +20,8 @@ mailRouter.post('/inbound', (req, res) => {
   const a = Buffer.from(String(providedStr || ''), 'utf8')
   const b = Buffer.from(secret, 'utf8')
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    const probe = readInboundEmail(req.body || {})
+    recordMailEvent({ from: probe.from, to: probe.to, subject: probe.subject, outcome: 'rejected', reason: 'Invalid inbound secret' })
     return res.status(401).json({ error: 'Invalid inbound secret' })
   }
 

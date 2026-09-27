@@ -287,6 +287,20 @@ export function fetchAuditLog() {
   return api<{ entries: AuditEntry[]; total: number }>('/api/admin/audit-log')
 }
 
+export type MailEvent = {
+  id: number
+  from: string | null
+  to: string | null
+  subject: string | null
+  outcome: 'accepted' | 'rejected'
+  reason: string | null
+  createdAt: string
+}
+
+export function fetchMailEvents() {
+  return api<{ events: MailEvent[]; total: number }>('/api/admin/mail-events')
+}
+
 /* ---------------- Builds ---------------- */
 
 export type Build = {

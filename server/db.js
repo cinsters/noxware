@@ -134,6 +134,16 @@ export function initDb() {
       UNIQUE (user_id, hwid_hash)
     );
 
+    CREATE TABLE IF NOT EXISTS mail_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_addr TEXT,
+      to_addr TEXT,
+      subject TEXT,
+      outcome TEXT NOT NULL,
+      reason TEXT,
+      created_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_builds_platform_active ON builds(platform, active);
     CREATE INDEX IF NOT EXISTS idx_launcher_devices_user ON launcher_devices(user_id);
     CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);

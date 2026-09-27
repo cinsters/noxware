@@ -5,6 +5,29 @@ export function getInboundSecret() {
   return process.env.MAIL_INBOUND_SECRET || ''
 }
 
+/** Record every inbound attempt (accepted or rejected) for the admin Mail log. */
+export function recordMailEvent({ from, to, subject, outcome, reason = null }) {
+  try {
+    getDb()
+      .prepare(
+        `
+      INSERT INTO mail_events (from_addr, to_addr, subject, outcome, reason, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
+      )
+      .run(
+        from ? String(from).slice(0, 254) : null,
+        to ? String(to).slice(0, 254) : null,
+        subject ? String(subject).slice(0, 254) : null,
+        outcome,
+        reason ? String(reason).slice(0, 254) : null,
+        new Date().toISOString(),
+      )
+  } catch {
+    // never let logging break mail handling
+  }
+}
+
 export function getSupportInboundAddress() {
   return String(process.env.SUPPORT_INBOUND_ADDRESS || '').trim().toLowerCase()
 }
@@ -64,19 +87,25 @@ export function handleInboundEmail(payload) {
   }
 
   const { from, to, subject, text } = readInboundEmail(payload)
-  if (!from) throw httpError(422, 'Missing sender email address')
+
+  const reject = (status, reason) => {
+    recordMailEvent({ from, to, subject, outcome: 'rejected', reason })
+    throw httpError(status, reason)
+  }
+
+  if (!from) reject(422, 'Missing sender email address')
 
   const expectedTo = getSupportInboundAddress()
   if (expectedTo && to && to !== expectedTo) {
-    throw httpError(422, 'Recipient is not the support inbox')
+    reject(422, `Recipient ${to} is not the support inbox (${expectedTo})`)
   }
-  if (!text) throw httpError(422, 'Email body is empty')
+  if (!text) reject(422, 'Email body is empty')
 
   const user = getDb()
     .prepare('SELECT id, email, username FROM users WHERE email = ? COLLATE NOCASE')
     .get(from)
   if (!user) {
-    throw httpError(422, `No account matches sender ${from}`)
+    reject(422, `No account matches sender ${from}`)
   }
 
   const isReply = /^(re|fw|fwd)\s*:/i.test(subject)
@@ -103,6 +132,7 @@ export function handleInboundEmail(payload) {
         .prepare(`UPDATE support_tickets SET status = 'open' WHERE id = ? AND status != 'open'`)
         .run(existing.id)
 
+      recordMailEvent({ from, to, subject, outcome: 'accepted', reason: `reply → ticket #${existing.id}` })
       return {
         matched: 'reply',
         ticketId: existing.id,
@@ -119,5 +149,6 @@ export function handleInboundEmail(payload) {
     via: 'email',
   })
 
+  recordMailEvent({ from, to, subject, outcome: 'accepted', reason: `new → ticket #${ticket.id}` })
   return { matched: 'new', ticketId: ticket.id, messageId: message.id, ticket: jsonTicket(ticket) }
 }
