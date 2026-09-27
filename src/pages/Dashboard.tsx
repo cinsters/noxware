@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { createCheckoutSession, downloadLoader, fetchLoaderMeta, listDevices, redeemKey, resetDevices, type Device, type LoaderMeta } from '../api'
+import { createCheckoutSession, createTicket, downloadLoader, fetchLoaderMeta, getMyTicket, listDevices, listMyTickets, redeemKey, replyTicket, resetDevices, type Device, type LoaderMeta, type Ticket } from '../api'
 import { useAuth } from '../auth'
 
-type Tab = 'overview' | 'subscription' | 'loader' | 'devices' | 'redeem'
+type Tab = 'overview' | 'subscription' | 'loader' | 'devices' | 'support' | 'redeem'
 
 const PLAN_LABELS: Record<string, string> = {
   '1m': '1 Month — €5.99',
@@ -96,6 +96,9 @@ export function DashboardPage() {
         </button>
         <button type="button" className={tab === 'devices' ? 'active' : ''} onClick={() => setTab('devices')}>
           Devices
+        </button>
+        <button type="button" className={tab === 'support' ? 'active' : ''} onClick={() => setTab('support')}>
+          Support
         </button>
         <button type="button" className={tab === 'redeem' ? 'active' : ''} onClick={() => setTab('redeem')}>
           Redeem key
@@ -238,6 +241,7 @@ export function DashboardPage() {
 
         {tab === 'loader' && <LoaderTab active={active} />}
         {tab === 'devices' && <DevicesTab />}
+        {tab === 'support' && <SupportTab />}
 
         {tab === 'redeem' && (
           <div className="dash-grid">
@@ -366,6 +370,206 @@ function DevicesTab() {
         <p className="sub" style={{ marginTop: '0.5rem' }}>
           Resets are limited to once every 3 months. Need it sooner? Open a ticket.
         </p>
+      </section>
+    </div>
+  )
+}
+
+function SupportTab() {
+  const [tickets, setTickets] = useState<Ticket[]>([])
+  const [openId, setOpenId] = useState<number | null>(null)
+  const [detail, setDetail] = useState<Ticket | null>(null)
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+  const [reply, setReply] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      const data = await listMyTickets()
+      setTickets(data.tickets)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load tickets')
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const openTicket = useCallback(async (id: number) => {
+    setError('')
+    try {
+      const data = await getMyTicket(id)
+      setDetail(data.ticket)
+      setOpenId(id)
+      setReply('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load ticket')
+    }
+  }, [])
+
+  async function onNewTicket(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const data = await createTicket(subject.trim(), body.trim())
+      setNotice(`Ticket #${data.ticket.id} created.`)
+      setSubject('')
+      setBody('')
+      await load()
+      await openTicket(data.ticket.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create ticket')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onReply(e: FormEvent) {
+    e.preventDefault()
+    if (!openId) return
+    setBusy(true)
+    setError('')
+    try {
+      await replyTicket(openId, reply.trim())
+      setReply('')
+      await openTicket(openId)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reply failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const statusPill = (s: Ticket['status']) =>
+    s === 'open' ? 'pill' : s === 'pending' ? 'pill warn' : 'pill inactive'
+
+  return (
+    <div className="dash-grid">
+      <section className="dash-panel wide">
+        <h2>Support tickets</h2>
+        {(notice || error) && (
+          <p className={error ? 'form-error' : 'sub'} style={{ margin: '0.5rem 0' }}>
+            {error || notice}
+          </p>
+        )}
+
+        {openId === null ? (
+          <>
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Subject</th>
+                    <th>Status</th>
+                    <th>Updated</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickets.map((t) => (
+                    <tr key={t.id}>
+                      <td className="sub">{t.id}</td>
+                      <td>{t.subject}</td>
+                      <td>
+                        <span className={statusPill(t.status)}>{t.status}</span>
+                      </td>
+                      <td className="sub">{new Date(t.updatedAt).toLocaleString()}</td>
+                      <td>
+                        <button type="button" className="btn btn-ghost" onClick={() => void openTicket(t.id)}>
+                          Open
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {tickets.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="sub">
+                        No tickets yet — open one below.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <h2 style={{ marginTop: '1.5rem' }}>New ticket</h2>
+            <form onSubmit={onNewTicket}>
+              <div className="field">
+                <label htmlFor="tk-subject">Subject</label>
+                <input
+                  id="tk-subject"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  required
+                  maxLength={120}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="tk-body">Message</label>
+                <textarea
+                  id="tk-body"
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  required
+                  rows={5}
+                />
+              </div>
+              <button className="btn btn-primary" type="submit" disabled={busy}>
+                {busy ? 'Sending…' : 'Open ticket'}
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <button type="button" className="btn btn-ghost" style={{ marginBottom: '0.75rem' }} onClick={() => setOpenId(null)}>
+              ← All tickets
+            </button>
+            <h2 style={{ marginTop: 0 }}>
+              #{detail?.id} {detail?.subject}{' '}
+              {detail && <span className={statusPill(detail.status)}>{detail.status}</span>}
+            </h2>
+            <div className="staff-conversation">
+              {detail?.messages
+                ?.filter((m) => !m.internal)
+                .map((m) => (
+                  <div key={m.id} className={`staff-msg ${m.authorRole}`}>
+                    <div className="staff-msg-head">
+                      <strong>{m.authorRole === 'staff' ? 'Support' : 'You'}</strong>
+                      <span className="staff-msg-time">{new Date(m.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p style={{ whiteSpace: 'pre-wrap', margin: '0.35rem 0 0' }}>{m.body}</p>
+                  </div>
+                ))}
+            </div>
+            {detail?.status === 'closed' ? (
+              <p className="sub">This ticket is closed — open a new one if you still need help.</p>
+            ) : (
+              <form onSubmit={onReply} style={{ marginTop: '1rem' }}>
+                <div className="field">
+                  <label htmlFor="tk-reply">Reply</label>
+                  <textarea
+                    id="tk-reply"
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    required
+                    rows={4}
+                  />
+                </div>
+                <button className="btn btn-primary" type="submit" disabled={busy}>
+                  {busy ? 'Sending…' : 'Send reply'}
+                </button>
+              </form>
+            )}
+          </>
+        )}
       </section>
     </div>
   )
