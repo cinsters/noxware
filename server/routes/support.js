@@ -10,6 +10,7 @@ import {
   listTickets,
   updateTicket,
 } from '../services/support.js'
+import { sendMail } from '../services/outbound-mail.js'
 
 export const supportRouter = Router()
 
@@ -140,6 +141,23 @@ supportRouter.post('/staff/tickets/:id/replies', requireStaff, (req, res) => {
 
   if (ticket.status === 'open' && req.body.internal !== true) {
     updateTicket(ticket.id, { status: 'pending' })
+  }
+
+  // Notify the customer by email on every visible staff reply (never on
+  // internal notes). Fire-and-forget; failures land in the admin Mail log.
+  if (req.body.internal !== true && ticket.email) {
+    sendMail({
+      to: ticket.email,
+      subject: `Re: [noxware #${ticket.id}] ${ticket.subject}`,
+      text: [
+        `Staff replied to your support ticket #${ticket.id} ("${ticket.subject}"):`,
+        '',
+        req.body.body,
+        '',
+        'Reply to this ticket at: https://noxware.cc/dashboard (Support tab)',
+        `Or just email support@noxware.cc with "Re:" in the subject to add to it.`,
+      ].join('\n'),
+    })
   }
 
   res.status(201).json({ message })
