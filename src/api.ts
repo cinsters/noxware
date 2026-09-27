@@ -286,6 +286,18 @@ export function fetchAuditLog() {
   return api<{ entries: AuditEntry[]; total: number }>('/api/admin/audit-log')
 }
 
+/* ---------------- Status ---------------- */
+
+export type SystemStatus = {
+  updatedAt: string
+  services: { name: string; status: 'Operational' | 'Degraded'; ok: boolean; latency: string | null }[]
+  invitesAvailable: number
+}
+
+export function fetchStatus() {
+  return api<SystemStatus>('/api/status')
+}
+
 /* ---------------- Invites ---------------- */
 
 export type Invite = {

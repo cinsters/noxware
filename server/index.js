@@ -14,6 +14,7 @@ import { mailRouter } from './routes/mail.js'
 import { mountDocs } from './routes/docs.js'
 import { nowpaymentsWebhookHandler } from './routes/webhook.js'
 import { seedDefaultInvites } from './services/registration.js'
+import { systemStatus } from './services/status.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(__dirname, '..', '.env') })
@@ -33,6 +34,10 @@ app.post('/api/webhooks/nowpayments', nowpaymentsWebhookHandler)
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'noxware-api' })
+})
+
+app.get('/api/status', (_req, res) => {
+  res.json(systemStatus())
 })
 
 app.use('/api/auth', authRouter)
