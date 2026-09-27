@@ -155,8 +155,8 @@ POST /api/launcher/devices
 ```
 
 - Re-posting an **already-registered** hwid just updates `lastSeenAt` / label (idempotent) — no limit interaction.
-- Default limit: **2 devices per account** (`DEVICE_LIMIT_PER_USER`, env-tunable). Lifetime grants may raise it later via a per-user override.
-- 409 responses include the device list so the launcher can show "you have 2 devices; reset at noxware.cc/dashboard".
+- Default limit: **1 device per account** (`DEVICE_LIMIT_PER_USER`, env-tunable). Lifetime grants may raise it later via a per-user override.
+- 409 responses include the device list so the launcher can show "device limit reached; reset at noxware.cc/dashboard".
 
 **Hardware-change reset** (user replaced motherboard/disk, reinstalled Windows, etc.):
 
@@ -231,9 +231,9 @@ Seeded by `npm run seed:test-accounts` (idempotent upsert — safe to re-run on 
 | admin | `admin@noxware.app` | `Test1234!` | full admin panel |
 
 - Test invite code: `NOX-LAUNCH-2026` (100 uses).
-- **HWID testing:** the seed pre-registers 2 devices on `test@noxware.app` — raw test hwids
-  `TESTHWID-GAMING-PC-00000001` and `TESTHWID-LAPTOP-000000000002` — so the `DEVICE_LIMIT` (409)
-  path is testable out of the box, and a third registration attempt returns 409 immediately.
+- **HWID testing:** the seed pre-registers 1 device on `test@noxware.app` — raw test hwid
+  `TESTHWID-GAMING-PC-00000001` — so the `DEVICE_LIMIT` (409) path is testable out of the
+  box: registering any second hwid returns 409 immediately.
 - Sandbox payments: set `NOWPAYMENTS_API_BASE=https://api.sandbox.nowpayments.io/v1` in the env.
 - **HWID testing:** device endpoints don't exist yet; when they ship, the seed will pre-register
   2 devices on `test@noxware.app` so the `DEVICE_LIMIT` (409) path is testable out of the box.

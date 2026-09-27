@@ -3,6 +3,7 @@ import { getDb } from '../db.js'
 import { audit, getSubscription, requireAuth } from '../middleware/auth.js'
 import { getActiveBuild, buildDownloadUrl } from '../services/builds.js'
 import {
+  DEFAULT_DEVICE_LIMIT,
   DEVICE_RESET_COOLDOWN_DAYS,
   cooldownEndsAt,
   deviceError,
@@ -19,7 +20,7 @@ export const launcherRouter = Router()
 launcherRouter.get('/devices', requireAuth, (req, res) => {
   res.json({
     devices: listDevices(req.user.id),
-    limit: Number(process.env.DEVICE_LIMIT_PER_USER || 2),
+    limit: DEFAULT_DEVICE_LIMIT,
     resetCooldownDays: DEVICE_RESET_COOLDOWN_DAYS,
     nextResetAllowedAt: cooldownEndsAt(req.user.id),
   })
@@ -78,7 +79,7 @@ launcherRouter.post('/launch-check', requireAuth, (req, res) => {
   const device = hwid ? findDeviceByHwid(req.user.id, hwid) : null
   if (hwid && !device) {
     const count = getDb().prepare('SELECT COUNT(*) AS c FROM launcher_devices WHERE user_id = ?').get(req.user.id).c
-    const limit = Number(process.env.DEVICE_LIMIT_PER_USER || 2)
+    const limit = DEFAULT_DEVICE_LIMIT
     const code = count >= limit ? 'DEVICE_LIMIT' : 'DEVICE_UNREGISTERED'
     throw deviceError(409, code, code === 'DEVICE_LIMIT' ? `Device limit reached (${limit})` : 'Device not registered — call POST /api/launcher/devices first', { devices: listDevices(req.user.id) })
   }
