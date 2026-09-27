@@ -110,6 +110,20 @@ export function initDb() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS builds (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL CHECK (platform IN ('windows', 'linux')),
+      version TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      stored_name TEXT NOT NULL UNIQUE,
+      size_bytes INTEGER NOT NULL,
+      sha256 TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 0,
+      uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_builds_platform_active ON builds(platform, active);
     CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);
     CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);
     CREATE INDEX IF NOT EXISTS idx_support_messages_ticket ON support_messages(ticket_id);

@@ -1,8 +1,19 @@
 import { Router } from 'express'
 import crypto from 'node:crypto'
+import path from 'node:path'
+import multer from 'multer'
 import { getDb } from '../db.js'
 import { audit, publicUser, requireAdmin } from '../middleware/auth.js'
 import { createInviteCode } from '../services/registration.js'
+import {
+  PLATFORMS,
+  MAX_BUILD_BYTES,
+  ensureBuildsDir,
+  hashStoredFile,
+  listBuilds,
+  activateBuild,
+  deleteBuild,
+} from '../services/builds.js'
 
 export const adminRouter = Router()
 
@@ -236,6 +247,92 @@ function getPlanData(planId) {
   const days = PLAN_DAYS[planId] ?? 30
   return { id: planId, days }
 }
+
+/* ---------------- Builds (loader binaries) ---------------- */
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      cb(null, ensureBuildsDir())
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').slice(0, 12)
+      cb(null, `${crypto.randomBytes(8).toString('hex')}-${Date.now()}${ext}`)
+    },
+  }),
+  limits: { fileSize: MAX_BUILD_BYTES },
+})
+
+adminRouter.get('/builds', requireAdmin, (_req, res) => {
+  res.json({ builds: listBuilds() })
+})
+
+adminRouter.post('/builds', requireAdmin, upload.single('file'), async (req, res) => {
+  const platform = String(req.body.platform || '')
+  const version = String(req.body.version || '').trim()
+  if (!PLATFORMS.includes(platform)) {
+    return res.status(400).json({ error: `platform must be one of: ${PLATFORMS.join(', ')}` })
+  }
+  if (!version || version.length > 40) {
+    return res.status(400).json({ error: 'version must be 1-40 characters' })
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: 'file is required (multipart field "file")' })
+  }
+
+  try {
+    const { sha256, size } = await hashStoredFile(req.file.filename)
+    const db = getDb()
+    const result = db
+      .prepare(
+        `
+        INSERT INTO builds (platform, version, filename, stored_name, size_bytes, sha256, active, uploaded_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+      `,
+      )
+      .run(
+        platform,
+        version,
+        req.file.originalname,
+        req.file.filename,
+        size,
+        sha256,
+        req.user.id,
+        new Date().toISOString(),
+      )
+    audit(req.user.id, 'build.upload', 'build', Number(result.lastInsertRowid), {
+      platform,
+      version,
+      filename: req.file.originalname,
+      sha256,
+      size,
+    })
+    res.status(201).json({ build: db.prepare('SELECT * FROM builds WHERE id = ?').get(result.lastInsertRowid) })
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Upload failed' })
+  }
+})
+
+adminRouter.post('/builds/:id/activate', requireAdmin, (req, res) => {
+  try {
+    const build = activateBuild(Number(req.params.id))
+    adminAudit(req, 'build.activate', 'build', Number(req.params.id), { platform: build.platform })
+    res.json({ build })
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Activation failed' })
+  }
+})
+
+adminRouter.delete('/builds/:id', requireAdmin, (req, res) => {
+  try {
+    const build = Number(req.params.id)
+    const result = deleteBuild(build)
+    adminAudit(req, 'build.delete', 'build', build, {})
+    res.json(result)
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Delete failed' })
+  }
+})
 
 /* ---------------- User invite revocation ---------------- */
 

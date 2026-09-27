@@ -286,6 +286,63 @@ export function fetchAuditLog() {
   return api<{ entries: AuditEntry[]; total: number }>('/api/admin/audit-log')
 }
 
+/* ---------------- Builds ---------------- */
+
+export type Build = {
+  id: number
+  platform: 'windows' | 'linux'
+  version: string
+  filename: string
+  stored_name?: string
+  size_bytes: number
+  sha256: string
+  active: number
+  uploaded_by: number | null
+  created_at: string
+}
+
+export function listBuilds() {
+  return api<{ builds: Build[] }>('/api/admin/builds')
+}
+
+export function uploadBuild(file: File, platform: string, version: string) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('platform', platform)
+  form.append('version', version)
+  return fetch('/api/admin/builds', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: form,
+  }).then((res) => parseJson<{ build: Build }>(res))
+}
+
+export function activateBuild(id: number) {
+  return api<{ build: Build }>(`/api/admin/builds/${id}/activate`, { method: 'POST' })
+}
+
+export function deleteBuild(id: number) {
+  return api<{ ok: boolean }>(`/api/admin/builds/${id}`, { method: 'DELETE' })
+}
+
+export function downloadLoader(platform: 'windows' | 'linux') {
+  return api<{ url: string; filename: string; version: string; sha256: string }>(
+    `/api/downloads/${platform}`,
+  )
+}
+
+export type LoaderMeta = {
+  version: string
+  filename: string
+  sizeBytes: number
+  sha256: string
+  updatedAt: string
+}
+
+export function fetchLoaderMeta(platform: 'windows' | 'linux') {
+  return api<{ build: LoaderMeta | null }>(`/api/downloads/${platform}/meta`)
+}
+
 /* ---------------- Status ---------------- */
 
 export type SystemStatus = {

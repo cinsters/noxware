@@ -10,6 +10,7 @@ import { checkoutRouter } from './routes/checkout.js'
 import { redeemRouter } from './routes/redeem.js'
 import { supportRouter } from './routes/support.js'
 import { adminRouter } from './routes/admin.js'
+import { downloadsRouter } from './routes/downloads.js'
 import { mailRouter } from './routes/mail.js'
 import { mountDocs } from './routes/docs.js'
 import { nowpaymentsWebhookHandler } from './routes/webhook.js'
@@ -46,6 +47,7 @@ app.use('/api/checkout', checkoutRouter)
 app.use('/api/redeem', redeemRouter)
 app.use('/api/support', supportRouter)
 app.use('/api/admin', adminRouter)
+app.use('/api/downloads', downloadsRouter)
 app.use('/api/mail', mailRouter)
 mountDocs(app)
 

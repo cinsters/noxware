@@ -1,6 +1,6 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { createCheckoutSession, redeemKey } from '../api'
+import { createCheckoutSession, downloadLoader, fetchLoaderMeta, redeemKey, type LoaderMeta } from '../api'
 import { useAuth } from '../auth'
 
 type Tab = 'overview' | 'subscription' | 'loader' | 'redeem'
@@ -12,6 +12,8 @@ const PLAN_LABELS: Record<string, string> = {
   lifetime: 'Lifetime',
   comp: 'Granted by staff',
 }
+
+const BUYABLE_PLANS = ['1m', '3m', '6m']
 
 export function DashboardPage() {
   const { user, subscription, latestLicenseKey, loading, refresh } = useAuth()
@@ -74,15 +76,6 @@ export function DashboardPage() {
     } finally {
       setBusy(false)
     }
-  }
-
-  function prepareDownload() {
-    if (!active) {
-      setMessage('Buy a plan or redeem a key before downloading the loader.')
-      setTab('subscription')
-      return
-    }
-    setMessage('Loader package ready. Binary hosting is not wired yet — subscription is active.')
   }
 
   return (
@@ -185,7 +178,7 @@ export function DashboardPage() {
                   <Link className="btn btn-ghost" to="/store">
                     Open store
                   </Link>
-                  <button type="button" className="btn btn-primary" onClick={prepareDownload}>
+                  <button type="button" className="btn btn-primary" onClick={() => setTab('loader')}>
                     Get loader
                   </button>
                 </div>
@@ -221,7 +214,7 @@ export function DashboardPage() {
                 <Link className="btn btn-primary" to="/store">
                   Go to store
                 </Link>
-                {Object.entries(PLAN_LABELS).map(([id, label]) => (
+                {BUYABLE_PLANS.map((id) => (
                   <button
                     key={id}
                     type="button"
@@ -232,7 +225,7 @@ export function DashboardPage() {
                       void startCheckout(id)
                     }}
                   >
-                    Buy {label}
+                    Buy {PLAN_LABELS[id]}
                   </button>
                 ))}
               </div>
@@ -240,34 +233,7 @@ export function DashboardPage() {
           </div>
         )}
 
-        {tab === 'loader' && (
-          <div className="dash-grid">
-            <section className="dash-panel wide">
-              <h2>nox-loader</h2>
-              <div className="loader-box">
-                <div>
-                  <strong>Windows 10 / 11 · x64</strong>
-                  <p style={{ margin: '0.35rem 0 0', color: 'var(--muted)' }}>
-                    {active
-                      ? 'Subscription active — download endpoint can be wired to your CDN next.'
-                      : 'Download unlocks after an active subscription.'}
-                  </p>
-                </div>
-                <button type="button" className="btn btn-primary" onClick={prepareDownload}>
-                  Download loader
-                </button>
-              </div>
-              <div className="stat-row" style={{ marginTop: '1rem' }}>
-                <span>Checksum</span>
-                <strong>pending</strong>
-              </div>
-              <div className="stat-row">
-                <span>Last update</span>
-                <strong>2026-09-18</strong>
-              </div>
-            </section>
-          </div>
-        )}
+        {tab === 'loader' && <LoaderTab active={active} />}
 
         {tab === 'redeem' && (
           <div className="dash-grid">
@@ -296,6 +262,108 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function LoaderTab({ active }: { active: boolean }) {
+  const [metas, setMetas] = useState<Record<'windows' | 'linux', LoaderMeta | null>>({
+    windows: null,
+    linux: null,
+  })
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([fetchLoaderMeta('windows'), fetchLoaderMeta('linux')])
+      .then(([w, l]) => {
+        if (cancelled) return
+        setMetas({ windows: w.build, linux: l.build })
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load build info')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function onDownload(platform: 'windows' | 'linux') {
+    setError('')
+    try {
+      const link = await downloadLoader(platform)
+      window.location.href = link.url
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Download failed')
+    }
+  }
+
+  const cards: { platform: 'windows' | 'linux'; title: string; subtitle: string }[] = [
+    { platform: 'windows', title: 'Windows 10 / 11', subtitle: 'x64' },
+    { platform: 'linux', title: 'Linux', subtitle: 'x64 · ELF binary' },
+  ]
+
+  return (
+    <div className="dash-grid">
+      <section className="dash-panel wide">
+        <h2>nox-loader</h2>
+        <p style={{ marginTop: 0, color: 'var(--muted)' }}>
+          Downloads unlock with an active subscription. Verify the SHA-256 checksum before running.
+        </p>
+        {error && <p className="form-error">{error}</p>}
+        <div className="dash-grid">
+          {cards.map(({ platform, title, subtitle }) => {
+            const meta = metas[platform]
+            return (
+              <div className="dash-panel" key={platform}>
+                <div className="loader-box">
+                  <div>
+                    <strong>{title}</strong>
+                    <p style={{ margin: '0.35rem 0 0', color: 'var(--muted)' }}>{subtitle}</p>
+                  </div>
+                  {active && meta ? (
+                    <button type="button" className="btn btn-primary" onClick={() => void onDownload(platform)}>
+                      Download
+                    </button>
+                  ) : (
+                    <button type="button" className="btn btn-ghost" disabled>
+                      {active ? 'No build yet' : 'Locked'}
+                    </button>
+                  )}
+                </div>
+                {meta ? (
+                  <>
+                    <div className="stat-row">
+                      <span>Version</span>
+                      <strong>{meta.version}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Size</span>
+                      <strong>{(meta.sizeBytes / (1024 * 1024)).toFixed(1)} MB</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>SHA-256</span>
+                      <strong style={{ wordBreak: 'break-all' }}>{meta.sha256}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Updated</span>
+                      <strong>{new Date(meta.updatedAt).toLocaleDateString()}</strong>
+                    </div>
+                  </>
+                ) : (
+                  <p className="sub" style={{ marginTop: '0.75rem' }}>
+                    {loading ? 'Loading…' : 'No build published for this platform yet.'}
+                  </p>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </section>
     </div>
   )
 }

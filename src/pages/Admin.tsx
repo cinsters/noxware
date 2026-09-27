@@ -1,23 +1,28 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import {
+  activateBuild,
   createInvite,
+  deleteBuild,
   fetchAuditLog,
   generateKeys,
   grantUser,
   isAdmin,
+  listBuilds,
   listInvites,
   listUsers,
   patchUser,
   revokeInvite,
   revokeUserInvites,
+  uploadBuild,
   type AdminUser,
   type AuditEntry,
+  type Build,
   type Invite,
 } from '../api'
 import { useAuth } from '../auth'
 
-type Tab = 'users' | 'keys' | 'invites' | 'audit'
+type Tab = 'users' | 'keys' | 'invites' | 'builds' | 'audit'
 
 export function AdminPage() {
   const { user, loading } = useAuth()
@@ -42,7 +47,7 @@ export function AdminPage() {
           <p>Users, keys, and the audit trail.</p>
         </div>
         <div className="staff-filters">
-          {(['users', 'keys', 'invites', 'audit'] as Tab[]).map((t) => (
+          {(['users', 'keys', 'invites', 'builds', 'audit'] as Tab[]).map((t) => (
             <button key={t} type="button" className={`btn btn-ghost ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -60,6 +65,7 @@ export function AdminPage() {
       {tab === 'users' && <UsersTab setNotice={setNotice} setError={setError} />}
       {tab === 'keys' && <KeysTab setNotice={setNotice} setError={setError} />}
       {tab === 'invites' && <InvitesTab setNotice={setNotice} setError={setError} />}
+      {tab === 'builds' && <BuildsTab setNotice={setNotice} setError={setError} />}
       {tab === 'audit' && <AuditTab setError={setError} />}
     </div>
   )
@@ -487,6 +493,174 @@ function KeysTab({
       <p style={{ color: 'var(--muted)', marginTop: '1rem' }}>
         Keys are unredeemed until someone enters them on the Redeem tab. Lifetime keys add ~100 years.
       </p>
+    </div>
+  )
+}
+
+function BuildsTab({
+  setNotice,
+  setError,
+}: {
+  setNotice: (v: string) => void
+  setError: (v: string) => void
+}) {
+  const [builds, setBuilds] = useState<Build[]>([])
+  const [platform, setPlatform] = useState('windows')
+  const [version, setVersion] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      const data = await listBuilds()
+      setBuilds(data.builds)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load builds')
+    }
+  }, [setError])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function onUpload(e: React.FormEvent) {
+    e.preventDefault()
+    if (!file) {
+      setError('Choose a file first.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setNotice('')
+    setProgress(`Uploading ${file.name} (${(file.size / (1024 * 1024)).toFixed(1)} MB)…`)
+    try {
+      const data = await uploadBuild(file, platform, version)
+      setNotice(`Uploaded ${data.build.filename} — remember to activate it.`)
+      setVersion('')
+      setFile(null)
+      setProgress('')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed')
+      setProgress('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onActivate(b: Build) {
+    setError('')
+    setNotice('')
+    try {
+      await activateBuild(b.id)
+      setNotice(`${b.platform} build ${b.version} is now live.`)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Activation failed')
+    }
+  }
+
+  async function onDelete(b: Build) {
+    if (!window.confirm(`Delete ${b.platform} build ${b.version} (${b.filename})?`)) return
+    setError('')
+    setNotice('')
+    try {
+      await deleteBuild(b.id)
+      setNotice(`Deleted ${b.filename}.`)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
+
+  return (
+    <div className="dash-panel wide">
+      <h2>Loader builds</h2>
+      <p style={{ marginTop: 0, color: 'var(--muted)' }}>
+        Upload separate Windows and Linux binaries. Activating a build makes it the one users download.
+      </p>
+      <form onSubmit={onUpload} className="staff-reply-actions" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+        <label>
+          platform{' '}
+          <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
+            <option value="windows">Windows</option>
+            <option value="linux">Linux</option>
+          </select>
+        </label>
+        <label>
+          version{' '}
+          <input
+            value={version}
+            onChange={(e) => setVersion(e.target.value)}
+            placeholder="1.4.3"
+            required
+            maxLength={40}
+          />
+        </label>
+        <label>
+          file <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required />
+        </label>
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          {busy ? 'Uploading…' : 'Upload build'}
+        </button>
+      </form>
+      {progress && <p className="sub">{progress}</p>}
+
+      <div className="admin-table-wrap" style={{ marginTop: '1rem' }}>
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Platform</th>
+              <th>Version</th>
+              <th>File</th>
+              <th>Size</th>
+              <th>SHA-256</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {builds.map((b) => (
+              <tr key={b.id}>
+                <td>{b.platform}</td>
+                <td>
+                  <strong>{b.version}</strong>
+                </td>
+                <td className="sub" style={{ maxWidth: 220, wordBreak: 'break-all' }}>
+                  {b.filename}
+                </td>
+                <td className="sub">{(b.size_bytes / (1024 * 1024)).toFixed(1)} MB</td>
+                <td className="sub" style={{ maxWidth: 160, wordBreak: 'break-all' }}>
+                  {b.sha256.slice(0, 16)}…
+                </td>
+                <td>{b.active ? <span className="pill">live</span> : <span className="pill inactive">idle</span>}</td>
+                <td>
+                  <div className="admin-actions">
+                    {!b.active && (
+                      <button type="button" className="btn btn-ghost" onClick={() => void onActivate(b)}>
+                        Activate
+                      </button>
+                    )}
+                    {!b.active && (
+                      <button type="button" className="btn btn-ghost danger" onClick={() => void onDelete(b)}>
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {builds.length === 0 && (
+              <tr>
+                <td colSpan={7} className="sub">
+                  No builds uploaded yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
