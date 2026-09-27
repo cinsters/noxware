@@ -783,6 +783,18 @@ paths:
                   total: { type: integer }
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'JWT from /api/auth/login or /api/auth/register (header `Authorization: Bearer <token>`), valid 14 days.'
+    inboundSecret:
+      type: apiKey
+      in: header
+      name: X-Inbound-Secret
+      description: Shared secret equal to the server's MAIL_INBOUND_SECRET.
+
   schemas:
     Invite:
       type: object
@@ -798,19 +810,6 @@ components:
         exhausted: { type: boolean }
         createdAt: { type: string }
 
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: JWT from /api/auth/login or /api/auth/register (`Authorization: Bearer <token>`), valid 14 days.
-    inboundSecret:
-      type: apiKey
-      in: header
-      name: X-Inbound-Secret
-      description: Shared secret equal to the server's MAIL_INBOUND_SECRET.
-
-  schemas:
     Error:
       type: object
       required: [error]
