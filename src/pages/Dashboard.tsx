@@ -364,7 +364,7 @@ function DevicesTab() {
             : 'Reset all devices'}
         </button>
         <p className="sub" style={{ marginTop: '0.5rem' }}>
-          Resets are limited to once per 7 days. Need it sooner? Open a ticket.
+          Resets are limited to once every 3 months. Need it sooner? Open a ticket.
         </p>
       </section>
     </div>

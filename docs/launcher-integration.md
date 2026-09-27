@@ -160,7 +160,7 @@ POST /api/launcher/devices
 
 **Hardware-change reset** (user replaced motherboard/disk, reinstalled Windows, etc.):
 
-- Self-serve: Dashboard → Devices → "Reset devices". Clears all devices **and** launcher sessions for the account. Rate-limited to **once per 7 days** (`code: DEVICE_RESET_COOLDOWN` with `nextAllowedAt`).
+- Self-serve: Dashboard → Devices → "Reset devices". Clears all devices **and** launcher sessions for the account. Rate-limited to **once every 3 months** (90 days, `DEVICE_RESET_COOLDOWN_DAYS` env-tunable; `code: DEVICE_RESET_COOLDOWN` with `nextAllowedAt`).
 - Staff: Admin reset has no cooldown and is audit-logged (`user.reset_devices`) — use it for support tickets where the user lost access to the site too.
 
 ---

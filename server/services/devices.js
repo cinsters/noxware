@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { getDb } from '../db.js'
 
 export const DEFAULT_DEVICE_LIMIT = Number(process.env.DEVICE_LIMIT_PER_USER || 2)
-export const DEVICE_RESET_COOLDOWN_DAYS = 7
+export const DEVICE_RESET_COOLDOWN_DAYS = Number(process.env.DEVICE_RESET_COOLDOWN_DAYS || 90)
 const HWID_RE = /^[A-Za-z0-9_-]{16,128}$/
 
 export function deviceError(status, code, message, extra = {}) {

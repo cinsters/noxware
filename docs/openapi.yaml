@@ -823,7 +823,7 @@ paths:
   /api/launcher/devices/reset:
     post:
       tags: [Launcher]
-      summary: Self-serve reset of all devices (7-day cooldown)
+      summary: Self-serve reset of all devices (3-month cooldown)
       security: [{ bearerAuth: [] }]
       responses:
         '200':
