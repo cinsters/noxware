@@ -18,7 +18,7 @@ const SPEC_PAGE = `<!doctype html>
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
     <script>
       window.addEventListener('load', () => {
-        window.ui = SwaggerUIBundle({ url: './openapi.yaml', dom_id: '#swagger' })
+        window.ui = SwaggerUIBundle({ url: '/docs/openapi.yaml', dom_id: '#swagger' })
       })
     </script>
   </body>
