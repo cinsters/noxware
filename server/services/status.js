@@ -5,11 +5,16 @@ export function systemStatus() {
   const db = getDb()
   const now = Date.now()
 
-  // Auth API: registration needs a usable invite + captcha available.
+  // Registration gate: needs a usable invite (not expired/revoked, uses < max).
+  // A closed gate is intentional (invite-only), NOT an outage — shown as its own
+  // neutral state instead of Degraded.
   const invites = db
     .prepare('SELECT COUNT(*) AS c FROM invite_codes WHERE (expires_at IS NULL OR expires_at > ?) AND uses < max_uses')
     .get(new Date().toISOString()).c
-  const authOk = invites > 0
+  const registration =
+    invites > 0
+      ? { status: 'Operational', ok: true }
+      : { status: 'Invite-only', ok: true }
 
   // Checkout: NOWPayments fully configured (key, IPN secret, reachable IPN URL).
   const paymentsOk = Boolean(
@@ -25,7 +30,6 @@ export function systemStatus() {
   const dbMs = Number(process.hrtime.bigint() - dbStart) / 1e6
 
   const check = (ok) => (ok ? { status: 'Operational', ok: true } : { status: 'Degraded', ok: false })
-  const auth = check(authOk)
   const payments = check(paymentsOk)
   const support = check(supportOk)
 
@@ -33,9 +37,10 @@ export function systemStatus() {
     updatedAt: new Date().toISOString(),
     services: [
       { name: 'Website', ...check(true), latency: null },
-      { name: 'Auth API', ...auth, latency: null },
+      { name: 'Auth API', ...check(true), latency: null },
       { name: 'Payments', ...payments, latency: null },
       { name: 'Support inbox', ...support, latency: null },
+      { name: 'Registration', ...registration, latency: null },
       { name: 'Database', ...check(true), latency: `${dbMs.toFixed(1)}ms` },
     ],
     invitesAvailable: invites,

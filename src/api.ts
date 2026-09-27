@@ -390,7 +390,7 @@ export function adminResetUserDevices(id: number) {
 
 export type SystemStatus = {
   updatedAt: string
-  services: { name: string; status: 'Operational' | 'Degraded'; ok: boolean; latency: string | null }[]
+  services: { name: string; status: 'Operational' | 'Degraded' | 'Invite-only'; ok: boolean; latency: string | null }[]
   invitesAvailable: number
 }
 
