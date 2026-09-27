@@ -131,7 +131,7 @@ GET /api/launcher/sessions
 
 ---
 
-## 4. HWID / device registration, limits, resets [PROPOSED]
+## 4. HWID / device registration, limits, resets [EXISTS]
 
 **HWID format** — opaque ASCII, 16–128 chars, launcher-generated. Recommended: salted hash of
 stable identifiers (e.g. machine GUID + motherboard serial), never raw serials. The server
@@ -165,7 +165,7 @@ POST /api/launcher/devices
 
 ---
 
-## 5. Launch eligibility check [PROPOSED]
+## 5. Launch eligibility check [EXISTS]
 
 One call the launcher makes before injecting — confirms account, subscription, and device in one shot:
 
@@ -231,6 +231,9 @@ Seeded by `npm run seed:test-accounts` (idempotent upsert — safe to re-run on 
 | admin | `admin@noxware.app` | `Test1234!` | full admin panel |
 
 - Test invite code: `NOX-LAUNCH-2026` (100 uses).
+- **HWID testing:** the seed pre-registers 2 devices on `test@noxware.app` — raw test hwids
+  `TESTHWID-GAMING-PC-00000001` and `TESTHWID-LAPTOP-000000000002` — so the `DEVICE_LIMIT` (409)
+  path is testable out of the box, and a third registration attempt returns 409 immediately.
 - Sandbox payments: set `NOWPAYMENTS_API_BASE=https://api.sandbox.nowpayments.io/v1` in the env.
 - **HWID testing:** device endpoints don't exist yet; when they ship, the seed will pre-register
   2 devices on `test@noxware.app` so the `DEVICE_LIMIT` (409) path is testable out of the box.
@@ -238,14 +241,14 @@ Seeded by `npm run seed:test-accounts` (idempotent upsert — safe to re-run on 
 
 ---
 
-## 8. Backend implementation checklist [PROPOSED → build order]
+## 8. Backend implementation checklist
 
-1. **Tables**: `launcher_sessions` (id, user_id, refresh_hash, device_id, created/rotated/last_seen, revoked_at) · `launcher_devices` (id, user_id, hwid_hash UNIQUE per user, label, platform, created/last_seen) · `launcher_auth_codes` (code_hash, user_id, challenge, redirect_uri, expires, consumed).
-2. **PKCE authorize page** on the website (`/launcher/authorize`) + consent UI.
-3. **`POST /api/launcher/token`** — authorization_code + refresh_token grants, rotation + reuse detection, `aud: "launcher"` JWTs (1 h).
-4. **Devices**: register (limit 2, idempotent re-post), list, self-serve reset (7-day cooldown), admin reset.
-5. **`POST /api/launcher/launch-check`** — sub + ban + device in one call, returns signed build URL.
-6. **`GET /api/launcher/latest`** — public update metadata, signed URL for eligible tokens.
-7. **Session management**: list / revoke current / revoke all + admin revoke action (audited).
-8. **OpenAPI**: add `/api/launcher/*` paths + schemas to `docs/openapi.yaml` as each lands.
-9. **Seed update**: pre-registered devices on `test@noxware.app`.
+1. ~~**Tables**: `launcher_devices`~~ **[DONE]** · still needed: `launcher_sessions` (id, user_id, refresh_hash, device_id, created/rotated/last_seen, revoked_at) · `launcher_auth_codes` (code_hash, user_id, challenge, redirect_uri, expires, consumed).
+2. **PKCE authorize page** on the website (`/launcher/authorize`) + consent UI. [PROPOSED]
+3. **`POST /api/launcher/token`** — authorization_code + refresh_token grants, rotation + reuse detection, `aud: "launcher"` JWTs (1 h). [PROPOSED]
+4. ~~**Devices**: register (limit 2, idempotent re-post), list, self-serve reset (7-day cooldown), admin reset~~ **[DONE]** — `/api/launcher/devices`, `/api/launcher/devices/reset`, `/api/admin/users/:id/reset-devices`; documented in `docs/openapi.yaml`.
+5. ~~**`POST /api/launcher/launch-check`**~~ **[DONE]** — sub + ban + device in one call, returns signed build URL; documented in `docs/openapi.yaml`. (Currently authenticates with the website JWT; revisit after `aud: "launcher"` tokens ship.)
+6. **`GET /api/launcher/latest`** — public update metadata, signed URL for eligible tokens. [PROPOSED — interim: `GET /api/downloads/:platform/meta` + launch-check cover this]
+7. **Session management**: list / revoke current / revoke all + admin revoke action (audited). [PROPOSED]
+8. ~~**OpenAPI**: `/api/launcher/*` paths + Device/DeviceError/LaunchCheck schemas~~ **[DONE]** — live in Swagger UI at `/docs`.
+9. ~~**Seed update**: pre-registered devices on `test@noxware.app`~~ **[DONE]**.

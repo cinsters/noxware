@@ -123,7 +123,19 @@ export function initDb() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS launcher_devices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      hwid_hash TEXT NOT NULL,
+      device_label TEXT,
+      platform TEXT NOT NULL DEFAULT 'windows',
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      UNIQUE (user_id, hwid_hash)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_builds_platform_active ON builds(platform, active);
+    CREATE INDEX IF NOT EXISTS idx_launcher_devices_user ON launcher_devices(user_id);
     CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);
     CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);
     CREATE INDEX IF NOT EXISTS idx_support_messages_ticket ON support_messages(ticket_id);
@@ -135,6 +147,7 @@ export function initDb() {
   migrateUsersRoleColumn(db)
   migrateUsersBanColumns(db)
   migrateInviteCodeColumns(db)
+  migrateUsersDeviceColumns(db)
 
   return db
 }
@@ -187,5 +200,14 @@ function migrateInviteCodeColumns(database) {
 
   if (!names.has('expires_at')) {
     database.exec('ALTER TABLE invite_codes ADD COLUMN expires_at TEXT')
+  }
+}
+
+function migrateUsersDeviceColumns(database) {
+  const columns = database.prepare('PRAGMA table_info(users)').all()
+  const names = new Set(columns.map((column) => column.name))
+
+  if (!names.has('devices_reset_at')) {
+    database.exec('ALTER TABLE users ADD COLUMN devices_reset_at TEXT')
   }
 }

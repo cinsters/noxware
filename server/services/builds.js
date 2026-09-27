@@ -77,6 +77,23 @@ export function deleteBuild(id) {
   return { ok: true }
 }
 
+export const DOWNLOAD_TOKEN_TTL_MS = 2 * 60 * 1000
+
+export function signDownloadToken(buildId, expiresAtMs) {
+  return crypto
+    .createHmac('sha256', process.env.JWT_SECRET || 'dev-only-change-me')
+    .update(`nox-build:${buildId}:${expiresAtMs}`)
+    .digest('hex')
+}
+
+export function buildDownloadUrl(build) {
+  const expires = Date.now() + DOWNLOAD_TOKEN_TTL_MS
+  return {
+    url: `/api/downloads/file/${build.id}?expires=${expires}&sig=${signDownloadToken(build.id, expires)}`,
+    urlExpiresIn: DOWNLOAD_TOKEN_TTL_MS / 1000,
+  }
+}
+
 /** Compute sha256 + size of an uploaded file without loading it into memory. */
 export function hashStoredFile(storedName) {
   return new Promise((resolve, reject) => {

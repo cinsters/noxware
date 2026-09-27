@@ -129,8 +129,27 @@ if (!db.prepare('SELECT id FROM invite_codes WHERE code = ?').get(inviteCode)) {
   )
 }
 
+// Pre-register two fake devices on the test customer so DEVICE_LIMIT paths are testable.
+const { hashHwid } = await import('../services/devices.js')
+const testCustomerRow = created.find((account) => account.role === 'customer')
+const nowIso = new Date().toISOString()
+for (const [hwid, label] of [
+  ['TESTHWID-GAMING-PC-00000001', 'Test Gaming PC'],
+  ['TESTHWID-LAPTOP-000000000002', 'Test Laptop'],
+]) {
+  const hw = hashHwid(hwid)
+  const exists = db.prepare('SELECT id FROM launcher_devices WHERE user_id = ? AND hwid_hash = ?').get(testCustomerRow.id, hw)
+  if (!exists) {
+    db.prepare(
+      `INSERT INTO launcher_devices (user_id, hwid_hash, device_label, platform, created_at, last_seen_at)
+       VALUES (?, ?, ?, 'windows', ?, ?)`,
+    ).run(testCustomerRow.id, hw, label, nowIso, nowIso)
+  }
+}
+
 console.log('Test accounts ready:')
 for (const account of created) {
   console.log(`  ${account.role.padEnd(8)} ${account.email} / ${PASSWORD}`)
 }
+console.log('Test HWIDs (customer, 2/2 slots used): TESTHWID-GAMING-PC-00000001, TESTHWID-LAPTOP-000000000002')
 console.log(`Invite code: ${inviteCode}`)

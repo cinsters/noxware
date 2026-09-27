@@ -234,6 +234,7 @@ export type AdminUser = {
   createdAt: string
   subscription: { planId: string; expiresAt: string; active: boolean } | null
   ticketCount: number
+  deviceCount: number
   inviteCode: string | null
 }
 
@@ -341,6 +342,34 @@ export type LoaderMeta = {
 
 export function fetchLoaderMeta(platform: 'windows' | 'linux') {
   return api<{ build: LoaderMeta | null }>(`/api/downloads/${platform}/meta`)
+}
+
+/* ---------------- Devices ---------------- */
+
+export type Device = {
+  id: string
+  label: string | null
+  platform: string
+  createdAt: string
+  lastSeenAt: string
+}
+
+export function listDevices() {
+  return api<{ devices: Device[]; limit: number; resetCooldownDays: number; nextResetAllowedAt: string | null }>(
+    '/api/launcher/devices',
+  )
+}
+
+export function resetDevices() {
+  return api<{ cleared: number; nextAllowedAt: string | null }>('/api/launcher/devices/reset', {
+    method: 'POST',
+  })
+}
+
+export function adminResetUserDevices(id: number) {
+  return api<{ cleared: number; nextAllowedAt: string | null }>(`/api/admin/users/${id}/reset-devices`, {
+    method: 'POST',
+  })
 }
 
 /* ---------------- Status ---------------- */

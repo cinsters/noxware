@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import {
   activateBuild,
+  adminResetUserDevices,
   createInvite,
   deleteBuild,
   fetchAuditLog,
@@ -128,6 +129,11 @@ function UsersTab({
     await act(u.id, () => grantUser(u.id, lifetime ? { lifetime: true } : { days }), `Granted ${lifetime ? 'lifetime' : `${days} days`} to ${u.username}.`)
   }
 
+  async function onResetDevices(u: AdminUser) {
+    if (!window.confirm(`Reset ALL devices for ${u.username}? They must re-register on next launch.`)) return
+    await act(u.id, () => adminResetUserDevices(u.id), `Cleared devices for ${u.username}.`)
+  }
+
   async function onRevokeInvites(u: AdminUser) {
     if (!window.confirm(`Revoke ALL invite codes used by ${u.username}?\n\nThis blocks anyone who got codes from them from registering.`)) return
     setBusyId(u.id)
@@ -226,6 +232,15 @@ function UsersTab({
                     )}
                     <button type="button" className="btn btn-ghost" disabled={busyId === u.id} onClick={() => void onGrant(u)}>
                       Grant
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      disabled={busyId === u.id}
+                      title={`${u.deviceCount} registered device(s)`}
+                      onClick={() => void onResetDevices(u)}
+                    >
+                      Devices ({u.deviceCount})
                     </button>
                     {u.inviteCode && (
                       <button

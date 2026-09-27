@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router-dom'
-import { createCheckoutSession, downloadLoader, fetchLoaderMeta, redeemKey, type LoaderMeta } from '../api'
+import { createCheckoutSession, downloadLoader, fetchLoaderMeta, listDevices, redeemKey, resetDevices, type Device, type LoaderMeta } from '../api'
 import { useAuth } from '../auth'
 
-type Tab = 'overview' | 'subscription' | 'loader' | 'redeem'
+type Tab = 'overview' | 'subscription' | 'loader' | 'devices' | 'redeem'
 
 const PLAN_LABELS: Record<string, string> = {
   '1m': '1 Month — €5.99',
@@ -93,6 +93,9 @@ export function DashboardPage() {
         </button>
         <button type="button" className={tab === 'loader' ? 'active' : ''} onClick={() => setTab('loader')}>
           Loader
+        </button>
+        <button type="button" className={tab === 'devices' ? 'active' : ''} onClick={() => setTab('devices')}>
+          Devices
         </button>
         <button type="button" className={tab === 'redeem' ? 'active' : ''} onClick={() => setTab('redeem')}>
           Redeem key
@@ -234,6 +237,7 @@ export function DashboardPage() {
         )}
 
         {tab === 'loader' && <LoaderTab active={active} />}
+        {tab === 'devices' && <DevicesTab />}
 
         {tab === 'redeem' && (
           <div className="dash-grid">
@@ -262,6 +266,107 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function DevicesTab() {
+  const [devices, setDevices] = useState<Device[]>([])
+  const [limit, setLimit] = useState(2)
+  const [nextResetAllowedAt, setNextResetAllowedAt] = useState<string | null>(null)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = () => {
+    listDevices()
+      .then((d) => {
+        setDevices(d.devices)
+        setLimit(d.limit)
+        setNextResetAllowedAt(d.nextResetAllowedAt)
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load devices'))
+  }
+
+  useEffect(load, [])
+
+  async function onReset() {
+    if (!window.confirm('Reset all devices? You will need to re-register this PC on next launch.')) return
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      const r = await resetDevices()
+      setMessage(`Cleared ${r.cleared} device(s). Register again on next launcher start.`)
+      load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reset failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const cooldownActive = nextResetAllowedAt && new Date(nextResetAllowedAt).getTime() > Date.now()
+
+  return (
+    <div className="dash-grid">
+      <section className="dash-panel wide">
+        <h2>Your devices ({devices.length}/{limit})</h2>
+        <p style={{ marginTop: 0, color: 'var(--muted)' }}>
+          The launcher registers this PC on first start. If you replaced hardware or reinstalled
+          Windows, reset your devices and start the launcher again.
+        </p>
+        {(message || error) && (
+          <p className={error ? 'form-error' : 'sub'} style={{ margin: '0.5rem 0' }}>
+            {error || message}
+          </p>
+        )}
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Device</th>
+                <th>Platform</th>
+                <th>First seen</th>
+                <th>Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {devices.map((d) => (
+                <tr key={d.id}>
+                  <td>
+                    <strong>{d.label || d.id}</strong>
+                  </td>
+                  <td className="sub">{d.platform}</td>
+                  <td className="sub">{new Date(d.createdAt).toLocaleDateString()}</td>
+                  <td className="sub">{new Date(d.lastSeenAt).toLocaleString()}</td>
+                </tr>
+              ))}
+              {devices.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="sub">
+                    No devices registered yet — start the launcher to register this PC.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <button
+          type="button"
+          className="btn btn-ghost danger"
+          style={{ marginTop: '1rem' }}
+          disabled={busy || Boolean(cooldownActive)}
+          onClick={() => void onReset()}
+        >
+          {cooldownActive
+            ? `Reset available ${new Date(nextResetAllowedAt!).toLocaleDateString()}`
+            : 'Reset all devices'}
+        </button>
+        <p className="sub" style={{ marginTop: '0.5rem' }}>
+          Resets are limited to once per 7 days. Need it sooner? Open a ticket.
+        </p>
+      </section>
     </div>
   )
 }

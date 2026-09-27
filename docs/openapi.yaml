@@ -24,6 +24,8 @@ tags:
   - name: Checkout
   - name: Support
   - name: Staff
+  - name: Launcher
+    description: Device registration and launch eligibility for the desktop launcher
   - name: Admin
   - name: Webhooks
 security:
@@ -761,6 +763,133 @@ paths:
                   revoked:
                     type: array
                     items: { type: string }
+  /api/launcher/devices:
+    get:
+      tags: [Launcher]
+      summary: List the account's registered devices
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Devices, limit, and reset cooldown state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items: { $ref: '#/components/schemas/Device' }
+                  limit: { type: integer }
+                  resetCooldownDays: { type: integer }
+                  nextResetAllowedAt: { type: string, format: date-time, nullable: true }
+    post:
+      tags: [Launcher]
+      summary: Register (or refresh) this device
+      description: >
+        Idempotent for a known hwid (updates lastSeenAt/label). A new hwid beyond the
+        device limit is rejected with 409 DEVICE_LIMIT and the current device list.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hwid]
+              properties:
+                hwid: { type: string, minLength: 16, maxLength: 128, pattern: '^[A-Za-z0-9_-]+$', description: Opaque launcher-generated hardware id. Stored server-side as a keyed hash. }
+                deviceLabel: { type: string, maxLength: 64, nullable: true }
+                platform: { type: string, enum: [windows, linux] }
+      responses:
+        '200':
+          description: Registered (or refreshed) device
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  existing: { type: boolean }
+                  deviceId: { type: string, nullable: true }
+                  limit: { type: integer }
+                  devices:
+                    type: array
+                    items: { $ref: '#/components/schemas/Device' }
+        '400':
+          description: HWID_INVALID or PLATFORM_INVALID
+          content: { application/json: { schema: { $ref: '#/components/schemas/DeviceError' } } }
+        '409':
+          description: DEVICE_LIMIT — includes current devices for UI display
+          content: { application/json: { schema: { $ref: '#/components/schemas/DeviceError' } } }
+  /api/launcher/devices/reset:
+    post:
+      tags: [Launcher]
+      summary: Self-serve reset of all devices (7-day cooldown)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Devices cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleared: { type: integer }
+                  nextAllowedAt: { type: string, format: date-time, nullable: true }
+        '429':
+          description: DEVICE_RESET_COOLDOWN
+          content: { application/json: { schema: { $ref: '#/components/schemas/DeviceError' } } }
+  /api/launcher/launch-check:
+    post:
+      tags: [Launcher]
+      summary: Confirm account, subscription, and device may launch; returns signed build URL
+      description: >
+        One consolidated eligibility check. Failures return machine-readable codes:
+        403 ACCOUNT_BANNED, 403 SUB_INACTIVE, 409 DEVICE_UNREGISTERED, 409 DEVICE_LIMIT,
+        404 BUILD_MISSING.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hwid]
+              properties:
+                hwid: { type: string }
+                platform: { type: string, enum: [windows, linux], default: windows }
+      responses:
+        '200':
+          description: Launch allowed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LaunchCheck' }
+        '403':
+          description: ACCOUNT_BANNED or SUB_INACTIVE
+          content: { application/json: { schema: { $ref: '#/components/schemas/DeviceError' } } }
+        '404':
+          description: BUILD_MISSING
+          content: { application/json: { schema: { $ref: '#/components/schemas/DeviceError' } } }
+        '409':
+          description: DEVICE_UNREGISTERED or DEVICE_LIMIT
+          content: { application/json: { schema: { $ref: '#/components/schemas/DeviceError' } } }
+  /api/admin/users/{id}/reset-devices:
+    post:
+      tags: [Admin]
+      summary: Staff reset of a user's devices (no cooldown, audited)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Devices cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleared: { type: integer }
+                  nextAllowedAt: { type: string, format: date-time, nullable: true }
+        '404': { description: User not found }
   /api/admin/audit-log:
     get:
       tags: [Admin]
@@ -796,6 +925,58 @@ components:
       description: Shared secret equal to the server's MAIL_INBOUND_SECRET.
 
   schemas:
+    Device:
+      type: object
+      properties:
+        id: { type: string, example: 'ld_12' }
+        label: { type: string, nullable: true, example: 'Gaming PC' }
+        platform: { type: string, enum: [windows, linux] }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+
+    DeviceError:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [HWID_INVALID, PLATFORM_INVALID, DEVICE_LIMIT, DEVICE_UNREGISTERED, DEVICE_RESET_COOLDOWN, ACCOUNT_BANNED, SUB_INACTIVE, BUILD_MISSING, ERROR]
+        devices:
+          type: array
+          items: { $ref: '#/components/schemas/Device' }
+          description: Present on DEVICE_LIMIT so clients can show the current slots.
+        nextAllowedAt: { type: string, format: date-time, nullable: true }
+
+    LaunchCheck:
+      type: object
+      properties:
+        allowed: { type: boolean, example: true }
+        user:
+          type: object
+          properties:
+            id: { type: integer }
+            username: { type: string }
+            planId: { type: string, nullable: true }
+            expiresAt: { type: string, format: date-time, nullable: true }
+        device:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            label: { type: string, nullable: true }
+        build:
+          type: object
+          properties:
+            platform: { type: string, enum: [windows, linux] }
+            version: { type: string, example: '1.4.3' }
+            sha256: { type: string }
+            sizeBytes: { type: integer }
+            url:
+              type: string
+              description: Short-lived signed download URL (about 2 minutes).
+            urlExpiresIn: { type: integer }
+
     Invite:
       type: object
       properties:

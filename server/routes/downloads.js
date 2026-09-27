@@ -2,23 +2,10 @@ import { Router } from 'express'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { getDb } from '../db.js'
-import { getActiveBuild, buildPath } from '../services/builds.js'
+import { getActiveBuild, buildPath, buildDownloadUrl, DOWNLOAD_TOKEN_TTL_MS, signDownloadToken } from '../services/builds.js'
 import { getSubscription, requireAuth } from '../middleware/auth.js'
 
 export const downloadsRouter = Router()
-
-const DOWNLOAD_TOKEN_TTL_MS = 2 * 60 * 1000
-
-function downloadSecret() {
-  return process.env.JWT_SECRET || 'dev-only-change-me'
-}
-
-function signDownloadToken(buildId, expiresAtMs) {
-  return crypto
-    .createHmac('sha256', downloadSecret())
-    .update(`nox-build:${buildId}:${expiresAtMs}`)
-    .digest('hex')
-}
 
 function hasActiveSub(userId) {
   return Boolean(getSubscription(userId).active)
@@ -40,14 +27,13 @@ downloadsRouter.get('/:platform', requireAuth, (req, res) => {
     return res.status(404).json({ error: `No ${platform} build is currently available` })
   }
 
-  const expires = Date.now() + DOWNLOAD_TOKEN_TTL_MS
-  const sig = signDownloadToken(build.id, expires)
+  const { url, urlExpiresIn } = buildDownloadUrl(build)
   res.json({
-    url: `/api/downloads/file/${build.id}?expires=${expires}&sig=${sig}`,
+    url,
     filename: build.filename,
     version: build.version,
     sha256: build.sha256,
-    expiresIn: DOWNLOAD_TOKEN_TTL_MS / 1000,
+    expiresIn: urlExpiresIn,
   })
 })
 

@@ -5,6 +5,7 @@ import multer from 'multer'
 import { getDb } from '../db.js'
 import { audit, publicUser, requireAdmin } from '../middleware/auth.js'
 import { createInviteCode } from '../services/registration.js'
+import { resetDevices } from '../services/devices.js'
 import {
   PLATFORMS,
   MAX_BUILD_BYTES,
@@ -47,7 +48,8 @@ adminRouter.get('/users', requireAdmin, (req, res) => {
       `
       SELECT u.id, u.email, u.username, u.role, u.banned_at, u.ban_reason, u.created_at,
              s.plan_id, s.expires_at, i.code AS invite_code,
-             (SELECT COUNT(*) FROM support_tickets t WHERE t.user_id = u.id) AS ticket_count
+             (SELECT COUNT(*) FROM support_tickets t WHERE t.user_id = u.id) AS ticket_count,
+             (SELECT COUNT(*) FROM launcher_devices d WHERE d.user_id = u.id) AS device_count
       FROM users u
       LEFT JOIN subscriptions s ON s.user_id = u.id
       LEFT JOIN invite_codes i ON i.id = u.invite_code_id
@@ -72,6 +74,7 @@ adminRouter.get('/users', requireAdmin, (req, res) => {
         ? { planId: row.plan_id, expiresAt: row.expires_at, active: new Date(row.expires_at).getTime() > Date.now() }
         : null,
       ticketCount: row.ticket_count,
+      deviceCount: row.device_count,
       inviteCode: row.invite_code || null,
     })),
     total,
@@ -332,6 +335,20 @@ adminRouter.delete('/builds/:id', requireAdmin, (req, res) => {
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Delete failed' })
   }
+})
+
+/* ---------------- User device resets ---------------- */
+
+adminRouter.post('/users/:id/reset-devices', requireAdmin, (req, res) => {
+  const id = Number(req.params.id)
+  const db = getDb()
+  const target = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id)
+  if (!target) {
+    return res.status(404).json({ error: 'User not found' })
+  }
+  const result = resetDevices(id, { force: true })
+  adminAudit(req, 'user.reset_devices', 'user', id, { cleared: result.cleared })
+  res.json(result)
 })
 
 /* ---------------- User invite revocation ---------------- */
