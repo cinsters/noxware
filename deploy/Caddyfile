@@ -26,6 +26,11 @@ noxware.cc {
 		reverse_proxy api:3001
 	}
 
+	# OpenAPI spec + Swagger UI (served by node at /docs)
+	handle /docs* {
+		reverse_proxy api:3001
+	}
+
 	# Everything else: SPA with history-API fallback for react-router.
 	handle {
 		root * /srv/dist
