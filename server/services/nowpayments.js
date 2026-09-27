@@ -1,6 +1,8 @@
 import crypto from 'node:crypto'
 
-const API_BASE = 'https://api.nowpayments.io/v1'
+// Overridable so a sandbox account can be used for testing:
+// NOWPAYMENTS_API_BASE=https://api.sandbox.nowpayments.io/v1
+const API_BASE = process.env.NOWPAYMENTS_API_BASE || 'https://api.nowpayments.io/v1'
 
 export function getNowPaymentsKey() {
   const key = process.env.NOWPAYMENTS_API_KEY

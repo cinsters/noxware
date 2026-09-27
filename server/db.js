@@ -99,14 +99,26 @@ export function initDb() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id INTEGER,
+      details TEXT,
+      created_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);
     CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);
     CREATE INDEX IF NOT EXISTS idx_support_messages_ticket ON support_messages(ticket_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
   `)
 
   migrateOrdersPaymentId(db)
   migrateUsersRegistrationColumns(db)
   migrateUsersRoleColumn(db)
+  migrateUsersBanColumns(db)
 
   return db
 }
@@ -138,5 +150,17 @@ function migrateUsersRoleColumn(database) {
 
   if (!names.has('role')) {
     database.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'customer'")
+  }
+}
+
+function migrateUsersBanColumns(database) {
+  const columns = database.prepare('PRAGMA table_info(users)').all()
+  const names = new Set(columns.map((column) => column.name))
+
+  if (!names.has('banned_at')) {
+    database.exec('ALTER TABLE users ADD COLUMN banned_at TEXT')
+  }
+  if (!names.has('ban_reason')) {
+    database.exec('ALTER TABLE users ADD COLUMN ban_reason TEXT')
   }
 }

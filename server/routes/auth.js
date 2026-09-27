@@ -164,7 +164,7 @@ authRouter.post('/login', async (req, res) => {
   }
 
   const user = getDb()
-    .prepare('SELECT id, email, username, password_hash, created_at FROM users WHERE email = ?')
+    .prepare('SELECT id, email, username, password_hash, banned_at, created_at FROM users WHERE email = ?')
     .get(email)
 
   if (!user) {
@@ -174,6 +174,10 @@ authRouter.post('/login', async (req, res) => {
   const ok = await bcrypt.compare(password, user.password_hash)
   if (!ok) {
     return res.status(401).json({ error: 'Invalid email or password' })
+  }
+
+  if (user.banned_at) {
+    return res.status(403).json({ error: 'Account banned' })
   }
 
   const token = signToken(user)

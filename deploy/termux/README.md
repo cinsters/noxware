@@ -174,5 +174,6 @@ cp ~/noxware/server/data/noxware.sqlite /sdcard/Download/noxware-$(date +%F).sql
 | `npm install` fails on `better-sqlite3` | Confirm `pkg install build-essential binutils python` all installed; re-run install |
 | Site 502 / connection refused | `tail logs/api.log` — node crashed; `curl -s 127.0.0.1:3001/api/health` locally |
 | Site timeout from outside | `tail logs/tunnel.log`; check `cloudflared tunnel list` shows the tunnel healthy; phone awake? |
+| **Error 522 from Cloudflare** | Cloudflare can't reach cloudflared. In order: (1) is the tunnel connected? `cloudflared tunnel info noxware` and `tail -n 30 logs/tunnel.log` — you want `Registered tunnel connection` lines, not reconnect loops. (2) Is Caddy up? `curl -s http://127.0.0.1:8080/api/health` on the phone. (3) Phone asleep / Termux killed? Re-run `start.sh`, battery → Unrestricted. (4) DNS: `noxware.cc` must be a **CNAME → `<TUNNEL_ID>.cfargotunnel.com` (proxied)** — a leftover A record pointing anywhere will 522/1033. (5) Carrier blocks QUIC? If tunnel.log shows QUIC timeouts, run cloudflared with `--protocol http2`. |
 | `route dns` record conflict | Delete stale A records for that hostname in Cloudflare DNS |
 | Everything died overnight | Battery optimization re-enabled? Termux swiped away? Re-run start.sh, recheck step 11 |

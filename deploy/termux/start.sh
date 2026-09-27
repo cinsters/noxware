@@ -24,6 +24,20 @@ if [ ! -f "$HOME/.cloudflared/config.yml" ]; then
   echo "ERROR: ~/.cloudflared/config.yml missing — finish tunnel setup (step 7 of deploy/termux/README.md)." >&2
   exit 1
 fi
+if grep -qE 'TUNNEL_ID|<UUID>' "$HOME/.cloudflared/config.yml"; then
+  echo "ERROR: ~/.cloudflared/config.yml still contains a placeholder (TUNNEL_ID or <UUID>)." >&2
+  echo "  Get your tunnel id:  cloudflared tunnel list" >&2
+  echo "  Then substitute it:  sed -i \"s|PLACEHOLDER|YOUR_REAL_UUID|g\" ~/.cloudflared/config.yml" >&2
+  echo "  (both lines: 'tunnel:' and 'credentials-file:')" >&2
+  exit 1
+fi
+CRED_FILE=$(grep 'credentials-file:' "$HOME/.cloudflared/config.yml" | awk '{print $2}')
+if [ -n "$CRED_FILE" ] && [ ! -f "$CRED_FILE" ]; then
+  echo "ERROR: tunnel credentials file not found: $CRED_FILE" >&2
+  echo "  The file is created by: cloudflared tunnel create noxware" >&2
+  echo "  Re-run that, then set credentials-file to the real path ~/.cloudflared/YOUR_TUNNEL_UUID.json" >&2
+  exit 1
+fi
 
 # Keep the CPU awake while serving.
 termux-wake-lock 2>/dev/null || true
@@ -45,7 +59,10 @@ run_loop() { # $1 name, $2 command...
 
 run_loop api       node server/index.js
 run_loop caddy     caddy run --config "$ROOT/deploy/termux/Caddyfile"
-run_loop tunnel    cloudflared tunnel run --config "$HOME/.cloudflared/config.yml"
+# Run the tunnel through a wrapper: bare `cloudflared tunnel run` with no flags
+# and no args — the invocation verified working on the device (some builds choke
+# on --config placement and on the tunnel-name argument).
+run_loop tunnel    "$ROOT/deploy/termux/tunnel-run.sh"
 
 sleep 2
 echo "Noxware started on Termux:"

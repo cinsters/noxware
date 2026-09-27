@@ -21,11 +21,15 @@ export function requireAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET())
     const user = getDb()
-      .prepare('SELECT id, email, username, role, created_at FROM users WHERE id = ?')
+      .prepare('SELECT id, email, username, role, banned_at, created_at FROM users WHERE id = ?')
       .get(payload.sub)
 
     if (!user) {
       return res.status(401).json({ error: 'User not found' })
+    }
+
+    if (user.banned_at) {
+      return res.status(403).json({ error: 'Account banned' })
     }
 
     req.user = user
@@ -48,14 +52,36 @@ export function requireStaff(req, res, next) {
   })
 }
 
+export function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' })
+    }
+    next()
+  })
+}
+
 export function publicUser(user) {
   return {
     id: user.id,
     email: user.email,
     username: user.username,
     role: user.role || 'customer',
+    banned: Boolean(user.banned_at),
     createdAt: user.created_at,
   }
+}
+
+/** Append a row to the audit log. details may be any JSON-serializable value. */
+export function audit(actorId, action, targetType = null, targetId = null, details = null) {
+  getDb()
+    .prepare(
+      `
+      INSERT INTO audit_log (actor_id, action, target_type, target_id, details, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
+    )
+    .run(actorId, action, targetType, targetId, details ? JSON.stringify(details) : null, new Date().toISOString())
 }
 
 export function getSubscription(userId) {

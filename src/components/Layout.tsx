@@ -1,5 +1,6 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
+import { isAdmin, isStaff } from '../api'
 import { useAuth } from '../auth'
 
 /** Member chrome only — guests see the gate with no nav. */
@@ -28,6 +29,16 @@ export function SiteNav() {
           <NavLink to="/status" onClick={() => setOpen(false)}>
             Status
           </NavLink>
+          {isStaff(user) && (
+            <NavLink to="/staff" onClick={() => setOpen(false)}>
+              Support
+            </NavLink>
+          )}
+          {isAdmin(user) && (
+            <NavLink to="/admin" onClick={() => setOpen(false)}>
+              Admin
+            </NavLink>
+          )}
         </nav>
 
         <div className="nav-actions">

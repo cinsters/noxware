@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "start:api": "node server/index.js",
     "invite": "node server/scripts/create-invite.js",
-    "seed:test-accounts": "node server/scripts/seed-test-account.js"
+    "seed:test-accounts": "node server/scripts/seed-test-account.js",
+    "keys": "node server/scripts/generate-keys.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

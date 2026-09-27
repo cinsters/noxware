@@ -3,6 +3,9 @@ main = "index.js"
 compatibility_date = "2026-01-15"
 
 [vars]
-API_URL = "https://api.noxware.cc/api/mail/inbound"
+# Single-host deployment (Termux / no api. subdomain):
+API_URL = "https://noxware.cc/api/mail/inbound"
+# VPS with dedicated API host — use instead:
+# API_URL = "https://api.noxware.cc/api/mail/inbound"
 
 # Secret (do NOT put it in vars):  npx wrangler secret put INBOUND_SECRET

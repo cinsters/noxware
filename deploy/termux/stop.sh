@@ -16,9 +16,13 @@ for name in api caddy tunnel; do
   fi
 done
 
-# Belt and suspenders: any strays still bound to our ports/processes.
+# Belt and suspenders: any strays still bound to our ports/processes —
+# including orphaned run_loop subshells from an earlier start.sh run that
+# never got stopped (they keep respawning their service forever otherwise).
+pkill -f "termux/start.sh" 2>/dev/null
 pkill -f "cloudflared tunnel run" 2>/dev/null
 pkill -f "caddy run --config $HOME/noxware" 2>/dev/null
+pkill -f "node server/index.js" 2>/dev/null
 
 termux-wake-unlock 2>/dev/null || true
 echo "Noxware stopped."

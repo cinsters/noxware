@@ -9,6 +9,8 @@ import { StorePage } from './pages/Store'
 import { StatusPage } from './pages/Status'
 import { CheckoutCancelPage, CheckoutSuccessPage } from './pages/Checkout'
 import { PrivacyPage, TermsPage } from './pages/Legal'
+import { StaffPage } from './pages/Staff'
+import { AdminPage } from './pages/Admin'
 
 function Shell({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
@@ -49,6 +51,8 @@ function AppRoutes() {
           <Route path="/status" element={<StatusPage />} />
           <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
           <Route path="/checkout/cancel" element={<CheckoutCancelPage />} />
+          <Route path="/staff" element={<StaffPage />} />
+          <Route path="/admin" element={<AdminPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

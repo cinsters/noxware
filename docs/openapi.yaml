@@ -24,6 +24,7 @@ tags:
   - name: Checkout
   - name: Support
   - name: Staff
+  - name: Admin
   - name: Webhooks
 security:
   - bearerAuth: []
@@ -569,6 +570,150 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/admin/users:
+    get:
+      tags: [Admin]
+      summary: List/search users (admin only)
+      parameters:
+        - { name: search, in: query, schema: { type: string }, description: Matches email or username (LIKE %term%) }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        '200':
+          description: Users with role, ban state, subscription, ticket count
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users, total]
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminUser' }
+                  total: { type: integer }
+        '403':
+          description: Not admin
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/admin/users/{id}:
+    patch:
+      tags: [Admin]
+      summary: Change role and/or ban/unban (admin only)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { type: string, enum: [customer, support, admin] }
+                ban: { type: boolean }
+                banReason: { type: string }
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '403': { description: Cannot demote self / admins cannot ban admins }
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/admin/users/{id}/grant:
+    post:
+      tags: [Admin]
+      summary: Grant subscription days or lifetime access (admin only)
+      description: |
+        Extends from the later of now / current expiry, so grants stack.
+        `lifetime:true` writes plan_id `lifetime` (~100 years) and is visible
+        as "Lifetime" on the user's dashboard.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days: { type: integer, minimum: 1, maximum: 3650 }
+                lifetime: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Grant applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscription:
+                    type: object
+                    properties:
+                      planId: { type: string }
+                      expiresAt: { type: string, format: date-time }
+                      lifetime: { type: boolean }
+        '400':
+          description: Neither valid days nor lifetime
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/admin/license-keys:
+    post:
+      tags: [Admin]
+      summary: Generate unredeemed license keys (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                count: { type: integer, minimum: 1, maximum: 50, default: 1 }
+                planId: { type: string, enum: ['1m', '3m', '6m', 'lifetime'], default: '3m' }
+      responses:
+        '201':
+          description: Generated codes (prefix NOX1/NOX3/NOX6/NOXL)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items: { type: string, example: 'NOXL-A1B2-C3D4-E5F6' }
+
+  /api/admin/audit-log:
+    get:
+      tags: [Admin]
+      summary: Audit trail of admin actions (admin only)
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        '200':
+          description: Newest-first audit entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries, total]
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuditEntry' }
+                  total: { type: integer }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -746,3 +891,42 @@ components:
         ticketId: { type: integer }
         messageId: { type: integer }
         ticket: { $ref: '#/components/schemas/TicketSummary' }
+
+    AdminUser:
+      type: object
+      required: [id, email, username, role, banned]
+      properties:
+        id: { type: integer }
+        email: { type: string, format: email }
+        username: { type: string }
+        role: { type: string, enum: [customer, support, admin] }
+        banned: { type: boolean }
+        banReason: { type: string, nullable: true }
+        bannedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        subscription:
+          nullable: true
+          type: object
+          properties:
+            planId: { type: string }
+            expiresAt: { type: string, format: date-time }
+            active: { type: boolean }
+        ticketCount: { type: integer }
+
+    AuditEntry:
+      type: object
+      required: [id, action, createdAt]
+      properties:
+        id: { type: integer }
+        actor:
+          nullable: true
+          type: object
+          properties:
+            id: { type: integer }
+            username: { type: string }
+            email: { type: string, format: email }
+        action: { type: string, example: user.ban }
+        targetType: { type: string, nullable: true, example: user }
+        targetId: { type: integer, nullable: true }
+        details: { type: object, nullable: true, additionalProperties: true }
+        createdAt: { type: string, format: date-time }

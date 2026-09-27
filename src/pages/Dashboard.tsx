@@ -9,6 +9,8 @@ const PLAN_LABELS: Record<string, string> = {
   '1m': '1 Month — €5.99',
   '3m': '3 Months — €14.99',
   '6m': '6 Months — €24.99',
+  lifetime: 'Lifetime',
+  comp: 'Granted by staff',
 }
 
 export function DashboardPage() {
