@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { getDb } from '../db.js'
 import { publicUser, signToken, getSubscription } from '../middleware/auth.js'
 import {
+  checkInviteCode,
   consumeLocalCaptcha,
   createLocalCaptcha,
   getCaptchaMode,
@@ -89,15 +90,11 @@ authRouter.post('/register', async (req, res) => {
     return res.status(409).json({ error: `${field} already in use` })
   }
 
-  const invite = db
-    .prepare('SELECT id, code, max_uses, uses FROM invite_codes WHERE code = ?')
-    .get(inviteCode)
-
-  if (!invite) {
-    return res.status(400).json({ error: 'Invalid invitation code' })
-  }
-  if (invite.uses >= invite.max_uses) {
-    return res.status(400).json({ error: 'Invitation code has no remaining uses' })
+  let invite
+  try {
+    invite = checkInviteCode(inviteCode)
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message || 'Invalid invitation code' })
   }
 
   const passwordHash = await bcrypt.hash(password, 12)

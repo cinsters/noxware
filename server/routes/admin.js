@@ -2,6 +2,7 @@ import { Router } from 'express'
 import crypto from 'node:crypto'
 import { getDb } from '../db.js'
 import { audit, publicUser, requireAdmin } from '../middleware/auth.js'
+import { createInviteCode } from '../services/registration.js'
 
 export const adminRouter = Router()
 
@@ -34,10 +35,11 @@ adminRouter.get('/users', requireAdmin, (req, res) => {
     .prepare(
       `
       SELECT u.id, u.email, u.username, u.role, u.banned_at, u.ban_reason, u.created_at,
-             s.plan_id, s.expires_at,
+             s.plan_id, s.expires_at, i.code AS invite_code,
              (SELECT COUNT(*) FROM support_tickets t WHERE t.user_id = u.id) AS ticket_count
       FROM users u
       LEFT JOIN subscriptions s ON s.user_id = u.id
+      LEFT JOIN invite_codes i ON i.id = u.invite_code_id
       ${whereSql}
       ORDER BY u.id DESC
       LIMIT ? OFFSET ?
@@ -59,6 +61,7 @@ adminRouter.get('/users', requireAdmin, (req, res) => {
         ? { planId: row.plan_id, expiresAt: row.expires_at, active: new Date(row.expires_at).getTime() > Date.now() }
         : null,
       ticketCount: row.ticket_count,
+      inviteCode: row.invite_code || null,
     })),
     total,
     limit,
@@ -233,6 +236,127 @@ function getPlanData(planId) {
   const days = PLAN_DAYS[planId] ?? 30
   return { id: planId, days }
 }
+
+/* ---------------- User invite revocation ---------------- */
+
+adminRouter.post('/users/:id/revoke-invites', requireAdmin, (req, res) => {
+  const id = Number(req.params.id)
+  const db = getDb()
+  const target = db.prepare('SELECT id, email, username FROM users WHERE id = ?').get(id)
+  if (!target) {
+    return res.status(404).json({ error: 'User not found' })
+  }
+
+  const now = new Date().toISOString()
+  const past = new Date(Date.now() - 1000).toISOString()
+  const revoked = []
+
+  const tx = db.transaction(() => {
+    // The code this user signed up with...
+    const own = db
+      .prepare(
+        `
+        SELECT i.id, i.code FROM invite_codes i
+        JOIN users u ON u.invite_code_id = i.id
+        WHERE u.id = ? AND (i.expires_at IS NULL OR i.expires_at > ?)
+      `,
+      )
+      .get(id, now)
+    if (own) {
+      db.prepare('UPDATE invite_codes SET expires_at = ? WHERE id = ?').run(past, own.id)
+      revoked.push(own.code)
+    }
+
+    // ...and any codes they personally created (tracked in the audit log).
+    const created = db
+      .prepare(
+        `
+        SELECT DISTINCT a.target_id AS tid FROM audit_log a
+        WHERE a.actor_id = ? AND a.action = 'invite.create' AND a.target_type = 'invite'
+      `,
+      )
+      .all(id)
+    for (const row of created) {
+      const inv = db
+        .prepare('SELECT id, code FROM invite_codes WHERE id = ? AND (expires_at IS NULL OR expires_at > ?)')
+        .get(row.tid, now)
+      if (inv) {
+        db.prepare('UPDATE invite_codes SET expires_at = ? WHERE id = ?').run(past, inv.id)
+        revoked.push(inv.code)
+      }
+    }
+  })
+  tx()
+
+  adminAudit(req, 'invite.revoke_user_codes', 'user', id, { codes: revoked })
+  res.json({ ok: true, revoked })
+})
+
+/* ---------------- Invite codes ---------------- */
+
+adminRouter.get('/invites', requireAdmin, (_req, res) => {
+  const rows = getDb()
+    .prepare(
+      `
+      SELECT i.id, i.code, i.max_uses, i.uses, i.note, i.expires_at, i.created_at,
+             (SELECT COUNT(*) FROM users u WHERE u.invite_code_id = i.id) AS signups
+      FROM invite_codes i
+      ORDER BY i.id DESC
+    `,
+    )
+    .all()
+
+  res.json({
+    invites: rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      maxUses: row.max_uses,
+      uses: row.uses,
+      signups: row.signups,
+      note: row.note || null,
+      expiresAt: row.expires_at || null,
+      expired: Boolean(row.expires_at && new Date(row.expires_at).getTime() < Date.now()),
+      exhausted: row.uses >= row.max_uses,
+      createdAt: row.created_at,
+    })),
+  })
+})
+
+adminRouter.post('/invites', requireAdmin, (req, res) => {
+  const { code, maxUses = 1, expiresInDays = null, note = null } = req.body || {}
+  try {
+    const invite = createInviteCode(code, {
+      maxUses: Number(maxUses) || 1,
+      note: note ? String(note) : null,
+      expiresInDays: expiresInDays === null || expiresInDays === undefined || expiresInDays === '' ? null : Number(expiresInDays),
+    })
+    adminAudit(req, 'invite.create', 'invite', invite.id, {
+      code: invite.code,
+      maxUses: invite.maxUses,
+      expiresInDays: expiresInDays || null,
+    })
+    res.status(201).json({ invite })
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to create invite' })
+  }
+})
+
+adminRouter.delete('/invites/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id)
+  const db = getDb()
+  const invite = db.prepare('SELECT id, code, expires_at FROM invite_codes WHERE id = ?').get(id)
+  if (!invite) {
+    return res.status(404).json({ error: 'Invite not found' })
+  }
+
+  // Revoke = set expiry to the past. Preserves the code for signup attribution
+  // (users.invite_code_id) while instantly blocking new registrations.
+  const revokedAt = new Date(Date.now() - 1000).toISOString()
+  db.prepare('UPDATE invite_codes SET expires_at = ? WHERE id = ?').run(revokedAt, id)
+
+  adminAudit(req, 'invite.revoke', 'invite', id, { code: invite.code })
+  res.json({ ok: true, revokedAt })
+})
 
 /* ---------------- Audit log ---------------- */
 

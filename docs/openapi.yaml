@@ -693,6 +693,74 @@ paths:
                     type: array
                     items: { type: string, example: 'NOXL-A1B2-C3D4-E5F6' }
 
+  /api/admin/invites:
+    get:
+      tags: [Admin]
+      summary: List invite codes with usage and expiry state (admin only)
+      responses:
+        '200':
+          description: Invite codes, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [invites]
+                properties:
+                  invites:
+                    type: array
+                    items: { $ref: '#/components/schemas/Invite' }
+    post:
+      tags: [Admin]
+      summary: Create an invite code (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, minLength: 4 }
+                maxUses: { type: integer, default: 1 }
+                expiresInDays: { type: integer, nullable: true, description: 'Omit for no expiry' }
+                note: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Created invite
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invite: { $ref: '#/components/schemas/Invite' }
+        '409': { description: Code already exists }
+  /api/admin/invites/{id}:
+    delete:
+      tags: [Admin]
+      summary: Revoke an invite code (sets expiry to now; keeps signup attribution)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: Revoked }
+        '404': { description: Not found }
+  /api/admin/users/{id}/revoke-invites:
+    post:
+      tags: [Admin]
+      summary: Revoke all invite codes tied to a user (their signup code + codes they created)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Codes revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  revoked:
+                    type: array
+                    items: { type: string }
   /api/admin/audit-log:
     get:
       tags: [Admin]
@@ -715,6 +783,21 @@ paths:
                   total: { type: integer }
 
 components:
+  schemas:
+    Invite:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        maxUses: { type: integer }
+        uses: { type: integer }
+        signups: { type: integer }
+        note: { type: string, nullable: true }
+        expiresAt: { type: string, nullable: true }
+        expired: { type: boolean }
+        exhausted: { type: boolean }
+        createdAt: { type: string }
+
   securitySchemes:
     bearerAuth:
       type: http

@@ -10,12 +10,23 @@ export function normalizeInviteCode(code) {
     .replace(/\s+/g, '')
 }
 
-export function createInviteCode(code, { maxUses = 1, note = null } = {}) {
+export function createInviteCode(code, { maxUses = 1, note = null, expiresInDays = null } = {}) {
   const normalized = normalizeInviteCode(code)
   if (!normalized || normalized.length < 4) {
     const err = new Error('Invite code must be at least 4 characters')
     err.status = 400
     throw err
+  }
+
+  let expiresAt = null
+  if (expiresInDays !== null && expiresInDays !== undefined) {
+    const d = Number(expiresInDays)
+    if (!Number.isFinite(d) || d <= 0 || d > 3650) {
+      const err = new Error('expiresInDays must be between 1 and 3650')
+      err.status = 400
+      throw err
+    }
+    expiresAt = new Date(Date.now() + d * 24 * 60 * 60 * 1000).toISOString()
   }
 
   const db = getDb()
@@ -24,12 +35,12 @@ export function createInviteCode(code, { maxUses = 1, note = null } = {}) {
     const result = db
       .prepare(
         `
-        INSERT INTO invite_codes (code, max_uses, uses, note, created_at)
-        VALUES (?, ?, 0, ?, ?)
+        INSERT INTO invite_codes (code, max_uses, uses, note, expires_at, created_at)
+        VALUES (?, ?, 0, ?, ?, ?)
       `,
       )
-      .run(normalized, maxUses, note, createdAt)
-    return { id: Number(result.lastInsertRowid), code: normalized, maxUses }
+      .run(normalized, maxUses, note, expiresAt, createdAt)
+    return { id: Number(result.lastInsertRowid), code: normalized, maxUses, expiresAt }
   } catch (err) {
     if (String(err.message).includes('UNIQUE')) {
       const conflict = new Error('Invite code already exists')
@@ -60,8 +71,8 @@ export function seedDefaultInvites() {
   }
 }
 
-/** Consume one use of an invite inside a transaction. Returns invite row. */
-export function consumeInviteCode(code) {
+/** Validate an invite exists, is not expired, and has uses left — without consuming it. */
+export function checkInviteCode(code) {
   const normalized = normalizeInviteCode(code)
   if (!normalized) {
     const err = new Error('Invitation code is required')
@@ -69,13 +80,18 @@ export function consumeInviteCode(code) {
     throw err
   }
 
-  const db = getDb()
-  const invite = db
-    .prepare('SELECT id, code, max_uses, uses FROM invite_codes WHERE code = ?')
+  const invite = getDb()
+    .prepare('SELECT id, code, max_uses, uses, expires_at FROM invite_codes WHERE code = ?')
     .get(normalized)
 
   if (!invite) {
     const err = new Error('Invalid invitation code')
+    err.status = 400
+    throw err
+  }
+
+  if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
+    const err = new Error('Invitation code has expired')
     err.status = 400
     throw err
   }
@@ -86,7 +102,13 @@ export function consumeInviteCode(code) {
     throw err
   }
 
-  db.prepare('UPDATE invite_codes SET uses = uses + 1 WHERE id = ?').run(invite.id)
+  return invite
+}
+
+/** Consume one use of an invite. Returns invite row. */
+export function consumeInviteCode(code) {
+  const invite = checkInviteCode(code)
+  getDb().prepare('UPDATE invite_codes SET uses = uses + 1 WHERE id = ?').run(invite.id)
   return invite
 }
 

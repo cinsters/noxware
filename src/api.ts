@@ -234,6 +234,7 @@ export type AdminUser = {
   createdAt: string
   subscription: { planId: string; expiresAt: string; active: boolean } | null
   ticketCount: number
+  inviteCode: string | null
 }
 
 export function listUsers(search = '') {
@@ -258,6 +259,12 @@ export function grantUser(id: number, grant: { days?: number; lifetime?: boolean
   )
 }
 
+export function revokeUserInvites(id: number) {
+  return api<{ ok: boolean; revoked: string[] }>(`/api/admin/users/${id}/revoke-invites`, {
+    method: 'POST',
+  })
+}
+
 export function generateKeys(count: number, planId: string) {
   return api<{ keys: string[] }>('/api/admin/license-keys', {
     method: 'POST',
@@ -277,4 +284,39 @@ export type AuditEntry = {
 
 export function fetchAuditLog() {
   return api<{ entries: AuditEntry[]; total: number }>('/api/admin/audit-log')
+}
+
+/* ---------------- Invites ---------------- */
+
+export type Invite = {
+  id: number
+  code: string
+  maxUses: number
+  uses: number
+  signups: number
+  note: string | null
+  expiresAt: string | null
+  expired: boolean
+  exhausted: boolean
+  createdAt: string
+}
+
+export function listInvites() {
+  return api<{ invites: Invite[] }>('/api/admin/invites')
+}
+
+export function createInvite(input: {
+  code: string
+  maxUses?: number
+  expiresInDays?: number | null
+  note?: string | null
+}) {
+  return api<{ invite: Invite }>('/api/admin/invites', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function revokeInvite(id: number) {
+  return api<{ ok: boolean }>(`/api/admin/invites/${id}`, { method: 'DELETE' })
 }

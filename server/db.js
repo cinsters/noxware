@@ -67,6 +67,7 @@ export function initDb() {
       max_uses INTEGER NOT NULL DEFAULT 1,
       uses INTEGER NOT NULL DEFAULT 0,
       note TEXT,
+      expires_at TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -119,6 +120,7 @@ export function initDb() {
   migrateUsersRegistrationColumns(db)
   migrateUsersRoleColumn(db)
   migrateUsersBanColumns(db)
+  migrateInviteCodeColumns(db)
 
   return db
 }
@@ -162,5 +164,14 @@ function migrateUsersBanColumns(database) {
   }
   if (!names.has('ban_reason')) {
     database.exec('ALTER TABLE users ADD COLUMN ban_reason TEXT')
+  }
+}
+
+function migrateInviteCodeColumns(database) {
+  const columns = database.prepare('PRAGMA table_info(invite_codes)').all()
+  const names = new Set(columns.map((column) => column.name))
+
+  if (!names.has('expires_at')) {
+    database.exec('ALTER TABLE invite_codes ADD COLUMN expires_at TEXT')
   }
 }
