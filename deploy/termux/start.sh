@@ -62,7 +62,9 @@ run_loop caddy     caddy run --config "$ROOT/deploy/termux/Caddyfile"
 # Run the tunnel through a wrapper: bare `cloudflared tunnel run` with no flags
 # and no args — the invocation verified working on the device (some builds choke
 # on --config placement and on the tunnel-name argument).
-run_loop tunnel    "$ROOT/deploy/termux/tunnel-run.sh"
+# Invoke through bash so it runs even if the exec bit was lost in git
+# (files committed from Windows are stored non-executable).
+run_loop tunnel    bash "$ROOT/deploy/termux/tunnel-run.sh"
 
 sleep 2
 echo "Noxware started on Termux:"
