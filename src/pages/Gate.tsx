@@ -7,6 +7,7 @@ import {
   type LocalCaptcha,
 } from '../api'
 import { useAuth } from '../auth'
+import { consumeReturnTo } from '../returnTo'
 
 type Mode = 'login' | 'register'
 
@@ -172,7 +173,7 @@ export function GatePage() {
           captchaAnswer: captchaAnswer || undefined,
         })
       }
-      navigate('/dashboard')
+      navigate(consumeReturnTo() ?? '/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed')
       if (mode === 'register' && authConfig?.captchaMode === 'local') {

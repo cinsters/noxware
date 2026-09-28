@@ -11,6 +11,7 @@ import { CheckoutCancelPage, CheckoutSuccessPage } from './pages/Checkout'
 import { PrivacyPage, TermsPage } from './pages/Legal'
 import { StaffPage } from './pages/Staff'
 import { AdminPage } from './pages/Admin'
+import { LauncherAuthorizePage } from './pages/LauncherAuthorize'
 
 function Shell({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth()
@@ -42,6 +43,7 @@ function AppRoutes() {
         <Route path="/" element={<GatePage />} />
         <Route path="/login" element={<Navigate to="/?tab=login" replace />} />
         <Route path="/register" element={<Navigate to="/?tab=register" replace />} />
+        <Route path="/launcher/authorize" element={<LauncherAuthorizePage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
 

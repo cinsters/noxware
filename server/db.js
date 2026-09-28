@@ -144,12 +144,42 @@ export function initDb() {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS launcher_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      refresh_hash TEXT NOT NULL,
+      refresh_family TEXT NOT NULL,
+      previous_hash TEXT,
+      device_label TEXT,
+      platform TEXT NOT NULL DEFAULT 'windows',
+      created_at TEXT NOT NULL,
+      rotated_at TEXT,
+      last_seen_at TEXT NOT NULL,
+      revoked_at TEXT,
+      expires_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS launcher_auth_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code_hash TEXT NOT NULL UNIQUE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      client_id TEXT NOT NULL,
+      challenge TEXT NOT NULL,
+      redirect_uri TEXT NOT NULL,
+      session_hint TEXT,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_builds_platform_active ON builds(platform, active);
     CREATE INDEX IF NOT EXISTS idx_launcher_devices_user ON launcher_devices(user_id);
     CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);
     CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);
     CREATE INDEX IF NOT EXISTS idx_support_messages_ticket ON support_messages(ticket_id);
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_launcher_sessions_user ON launcher_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_launcher_sessions_family ON launcher_sessions(refresh_family);
+    CREATE INDEX IF NOT EXISTS idx_launcher_auth_codes_user ON launcher_auth_codes(user_id);
   `)
 
   migrateOrdersPaymentId(db)

@@ -386,6 +386,21 @@ export function adminResetUserDevices(id: number) {
   })
 }
 
+/* ---------------- Launcher browser sign-in ---------------- */
+
+export function authorizeLauncher(input: {
+  clientId: string
+  redirectUri: string
+  codeChallenge: string
+  scope: string
+  state: string
+}) {
+  return api<{ code: string; redirect: string; expiresIn: number }>('/api/launcher/authorize', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
 /* ---------------- Status ---------------- */
 
 export type SystemStatus = {

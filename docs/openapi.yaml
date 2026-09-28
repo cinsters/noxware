@@ -25,7 +25,7 @@ tags:
   - name: Support
   - name: Staff
   - name: Launcher
-    description: Device registration and launch eligibility for the desktop launcher
+    description: Browser sign-in (PKCE), session management, device registration, and launch eligibility for the desktop launcher
   - name: Admin
   - name: Webhooks
 security:
@@ -763,10 +763,159 @@ paths:
                   revoked:
                     type: array
                     items: { type: string }
+  /api/launcher/authorize:
+    post:
+      tags: [Launcher]
+      summary: Mint a single-use PKCE authorization code (called by the consent page)
+      description: >
+        The browser consent page (signed in with the normal website token) calls this after
+        the user taps Approve. Codes live 120 seconds, are bound to client_id + redirect_uri +
+        S256 code_challenge, and are consumed on the first token exchange attempt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clientId, redirectUri, codeChallenge, state]
+              properties:
+                clientId: { type: string, example: nox-launcher }
+                redirectUri: { type: string, example: 'http://127.0.0.1:52134/callback' }
+                codeChallenge: { type: string, description: BASE64URL(SHA256(code_verifier)) }
+                scope: { type: string, default: launch }
+                state: { type: string, minLength: 8, maxLength: 512 }
+      responses:
+        '200':
+          description: Auth code created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, redirect]
+                properties:
+                  code: { type: string }
+                  redirect: { type: string, description: Full redirect_uri with ?code= and ?state= appended }
+                  expiresIn: { type: integer, example: 120 }
+        '400':
+          description: CLIENT_ID_INVALID, REDIRECT_URI_INVALID, SCOPE_INVALID, STATE_INVALID or CHALLENGE_INVALID
+          content: { application/json: { schema: { $ref: '#/components/schemas/LauncherAuthError' } } }
+        '429':
+          description: RATE_LIMITED (5 per minute per account)
+          content: { application/json: { schema: { $ref: '#/components/schemas/LauncherAuthError' } } }
+  /api/launcher/token:
+    post:
+      tags: [Launcher]
+      summary: Exchange an auth code for tokens, or rotate a refresh token
+      description: >
+        grant_type=authorization_code — one-time exchange of a PKCE auth code for an
+        aud=launcher access token (1 h) plus an opaque rotating refresh token.
+        grant_type=refresh_token — rotates both tokens; presenting a previously rotated
+        refresh token revokes the whole session family (401 SESSION_REVOKED).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grant_type]
+              properties:
+                grant_type: { type: string, enum: [authorization_code, refresh_token] }
+                code: { type: string, description: authorization_code grant only }
+                code_verifier: { type: string, minLength: 43, maxLength: 128, description: authorization_code grant only }
+                redirect_uri: { type: string, description: authorization_code grant only }
+                client_id: { type: string, example: nox-launcher, description: authorization_code grant only }
+                refresh_token: { type: string, description: refresh_token grant only }
+      responses:
+        '200':
+          description: Token pair (fresh session or rotated)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400':
+          description: CODE_INVALID, CODE_EXPIRED, CODE_REUSED, PKCE_FAILED, VERIFIER_INVALID, GRANT_INVALID, REFRESH_INVALID or binding errors
+          content: { application/json: { schema: { $ref: '#/components/schemas/LauncherAuthError' } } }
+        '401':
+          description: SESSION_REVOKED — revoked, expired, or refresh-token reuse detected
+          content: { application/json: { schema: { $ref: '#/components/schemas/LauncherAuthError' } } }
+        '429':
+          description: RATE_LIMITED (10 per minute per IP)
+          content: { application/json: { schema: { $ref: '#/components/schemas/LauncherAuthError' } } }
+  /api/launcher/sessions:
+    get:
+      tags: [Launcher]
+      summary: List the account's launcher sessions
+      description: Requires a launcher access token (aud launcher); website tokens are rejected.
+      responses:
+        '200':
+          description: Sessions, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items: { $ref: '#/components/schemas/LauncherSession' }
+        '401':
+          description: Missing/invalid launcher token
+          content: { application/json: { schema: { $ref: '#/components/schemas/LauncherAuthError' } } }
+  /api/launcher/sessions/current/revoke:
+    post:
+      tags: [Launcher]
+      summary: Revoke one of the account's launcher sessions (log out a device)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId: { type: string, example: 'ls_7', description: Omit to revoke the token's own session }
+      responses:
+        '200':
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '401':
+          description: Missing/invalid launcher token
+          content: { application/json: { schema: { $ref: '#/components/schemas/LauncherAuthError' } } }
+        '404':
+          description: SESSION_NOT_FOUND
+          content: { application/json: { schema: { $ref: '#/components/schemas/LauncherAuthError' } } }
+  /api/launcher/sessions/revoke-all:
+    post:
+      tags: [Launcher]
+      summary: Revoke every launcher session for the account (log out everywhere)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                exceptSessionId: { type: string, example: 'ls_7', description: Keep this session alive (optional) }
+      responses:
+        '200':
+          description: Sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  revoked: { type: integer }
+        '401':
+          description: Missing/invalid launcher token
+          content: { application/json: { schema: { $ref: '#/components/schemas/LauncherAuthError' } } }
   /api/launcher/devices:
     get:
       tags: [Launcher]
       summary: List the account's registered devices
+      description: Accepts a website token or a launcher access token.
       security: [{ bearerAuth: [] }]
       responses:
         '200':
@@ -824,6 +973,7 @@ paths:
     post:
       tags: [Launcher]
       summary: Self-serve reset of all devices (3-month cooldown)
+      description: Also revokes every launcher session for the account.
       security: [{ bearerAuth: [] }]
       responses:
         '200':
@@ -843,9 +993,9 @@ paths:
       tags: [Launcher]
       summary: Confirm account, subscription, and device may launch; returns signed build URL
       description: >
-        One consolidated eligibility check. Failures return machine-readable codes:
-        403 ACCOUNT_BANNED, 403 SUB_INACTIVE, 409 DEVICE_UNREGISTERED, 409 DEVICE_LIMIT,
-        404 BUILD_MISSING.
+        One consolidated eligibility check. Accepts a website token or a launcher access
+        token (aud launcher). Failures return machine-readable codes: 403 ACCOUNT_BANNED,
+        403 SUB_INACTIVE, 409 DEVICE_UNREGISTERED, 409 DEVICE_LIMIT, 404 BUILD_MISSING.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -947,6 +1097,51 @@ components:
           items: { $ref: '#/components/schemas/Device' }
           description: Present on DEVICE_LIMIT so clients can show the current slots.
         nextAllowedAt: { type: string, format: date-time, nullable: true }
+
+    TokenResponse:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          description: JWT with aud=launcher, valid 1 hour. Accepted only by /api/launcher/* endpoints.
+        refresh_token:
+          type: string
+          description: Opaque rotating token (30 days). Rotates on every refresh; reuse kills the session family.
+        token_type: { type: string, example: Bearer }
+        expires_in: { type: integer, example: 3600 }
+        user:
+          type: object
+          properties:
+            id: { type: integer }
+            username: { type: string }
+            role: { type: string, example: customer }
+        session:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer }
+            deviceLabel: { type: string, nullable: true }
+            platform: { type: string }
+
+    LauncherSession:
+      type: object
+      properties:
+        id: { type: string, example: 'ls_7' }
+        deviceLabel: { type: string, nullable: true }
+        platform: { type: string, enum: [windows, linux] }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        revoked: { type: boolean }
+
+    LauncherAuthError:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [CLIENT_ID_INVALID, REDIRECT_URI_INVALID, SCOPE_INVALID, STATE_INVALID, CHALLENGE_INVALID, RATE_LIMITED, CODE_INVALID, CODE_EXPIRED, CODE_REUSED, VERIFIER_INVALID, PKCE_FAILED, GRANT_INVALID, REFRESH_INVALID, SESSION_REVOKED, SESSION_NOT_FOUND, ERROR]
 
     LaunchCheck:
       type: object

@@ -27,7 +27,7 @@ All authenticated calls use `Authorization: Bearer <token>`. Errors are JSON: `{
 
 ---
 
-## 2. Browser sign-in with PKCE [PROPOSED]
+## 2. Browser sign-in with PKCE [SHIPPED 2026-09-28]
 
 The launcher never sees the user's password. It opens the default browser; the user approves
 with their existing website session.
@@ -39,7 +39,7 @@ Launcher                          Website (browser)                       API
    │ 1. start loopback server 127.0.0.1:<ephemeral port>                │
    │ 2. code_verifier (43–128 chars) + S256 code_challenge               │
    │ 3. open browser ──────────────▶ GET /launcher/authorize?...         │
-   │                                   │ 4. user approves (session cookie)│
+   │                                   │ 4. user approves (website session)│
    │                                   ├─────────────────────────────────▶│ create auth code
    │ ◀── 302 redirect_uri?code=...&state=... ─────────────────────────────┤
    │ 5. verify state                                                     │
@@ -94,7 +94,7 @@ POST /api/launcher/token
 
 ---
 
-## 3. Session refresh, logout, revocation [PROPOSED]
+## 3. Session refresh, logout, revocation [SHIPPED 2026-09-28]
 
 | Endpoint | Auth | Purpose |
 |---|---|---|
@@ -102,6 +102,12 @@ POST /api/launcher/token
 | `GET /api/launcher/sessions` | launcher access token | List own sessions |
 | `POST /api/launcher/sessions/current/revoke` | launcher access token | Log out this device |
 | `POST /api/launcher/sessions/revoke-all` | launcher access token | Log out everywhere |
+
+The consent page itself mints codes through `POST /api/launcher/authorize` (website token):
+`{ clientId, redirectUri, codeChallenge, scope, state }` → `{ code, redirect, expiresIn }`.
+This endpoint is internal to the website UI — launchers never call it directly.
+
+`POST /api/launcher/devices/reset` also revokes every launcher session for the account.
 
 **Refresh (rotation with reuse detection):**
 
@@ -243,12 +249,12 @@ Seeded by `npm run seed:test-accounts` (idempotent upsert — safe to re-run on 
 
 ## 8. Backend implementation checklist
 
-1. ~~**Tables**: `launcher_devices`~~ **[DONE]** · still needed: `launcher_sessions` (id, user_id, refresh_hash, device_id, created/rotated/last_seen, revoked_at) · `launcher_auth_codes` (code_hash, user_id, challenge, redirect_uri, expires, consumed).
-2. **PKCE authorize page** on the website (`/launcher/authorize`) + consent UI. [PROPOSED]
-3. **`POST /api/launcher/token`** — authorization_code + refresh_token grants, rotation + reuse detection, `aud: "launcher"` JWTs (1 h). [PROPOSED]
+1. ~~**Tables**: `launcher_devices`, `launcher_sessions`, `launcher_auth_codes`~~ **[DONE]** — sessions store only the sha256 of the refresh token (plus the previous hash for reuse detection); auth codes store only their hash.
+2. ~~**PKCE authorize page** on the website (`/launcher/authorize`) + consent UI~~ **[DONE]** — SPA route with login-then-return flow; mints codes via `POST /api/launcher/authorize` (website token).
+3. ~~**`POST /api/launcher/token`** — authorization_code + refresh_token grants, rotation + reuse detection, `aud: "launcher"` JWTs (1 h)~~ **[DONE]** — rate limits: 5 authorize/min/account, 10 token/min/IP.
 4. ~~**Devices**: register (limit 2, idempotent re-post), list, self-serve reset (7-day cooldown), admin reset~~ **[DONE]** — `/api/launcher/devices`, `/api/launcher/devices/reset`, `/api/admin/users/:id/reset-devices`; documented in `docs/openapi.yaml`.
-5. ~~**`POST /api/launcher/launch-check`**~~ **[DONE]** — sub + ban + device in one call, returns signed build URL; documented in `docs/openapi.yaml`. (Currently authenticates with the website JWT; revisit after `aud: "launcher"` tokens ship.)
+5. ~~**`POST /api/launcher/launch-check`**~~ **[DONE]** — sub + ban + device in one call, returns signed build URL; documented in `docs/openapi.yaml`. (Accepts both website tokens and `aud: "launcher"` access tokens since the PKCE flow shipped.)
 6. **`GET /api/launcher/latest`** — public update metadata, signed URL for eligible tokens. [PROPOSED — interim: `GET /api/downloads/:platform/meta` + launch-check cover this]
-7. **Session management**: list / revoke current / revoke all + admin revoke action (audited). [PROPOSED]
+7. ~~**Session management**: list / revoke current / revoke all~~ **[DONE]** — audited as `launcher.session_revoke` / `launcher.sessions_revoke_all`. Admin "Revoke sessions" button (audited `user.revoke_sessions`) still optional/pending.
 8. ~~**OpenAPI**: `/api/launcher/*` paths + Device/DeviceError/LaunchCheck schemas~~ **[DONE]** — live in Swagger UI at `/docs`.
 9. ~~**Seed update**: pre-registered devices on `test@noxware.app`~~ **[DONE]**.
