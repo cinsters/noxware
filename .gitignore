@@ -3,12 +3,14 @@ node_modules
 
 # Build
 dist
+tsconfig.tsbuildinfo
 
 # Env & local data
 .env
 deploy/api.env
 server/data
 server/data/builds
+server/services/data
 
 # OS / editor
 .DS_Store
